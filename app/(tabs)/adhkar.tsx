@@ -25,10 +25,10 @@ export default function AdhkarScreen() {
   const styles = createStyles(isDark);
 
   const categories = [
-    { id: 'morning' as DhikrCategory, name: 'Morning', icon: Sun, color: '#F59E0B' },
-    { id: 'evening' as DhikrCategory, name: 'Evening', icon: Moon, color: '#8B5CF6' },
-    { id: 'general' as DhikrCategory, name: 'General', icon: Star, color: '#059669' },
-    { id: 'sleeping' as DhikrCategory, name: 'Sleep', icon: Moon, color: '#6366F1' },
+    { id: 'morning' as DhikrCategory, name: 'Morning', icon: Sun, gradient: ['#F59E0B', '#FBBF24'] },
+    { id: 'evening' as DhikrCategory, name: 'Evening', icon: Moon, gradient: ['#8B5CF6', '#A78BFA'] },
+    { id: 'general' as DhikrCategory, name: 'General', icon: Star, gradient: ['#059669', '#10B981'] },
+    { id: 'sleeping' as DhikrCategory, name: 'Sleep', icon: Moon, gradient: ['#6366F1', '#818CF8'] },
   ];
 
   useEffect(() => {
@@ -77,11 +77,14 @@ export default function AdhkarScreen() {
   return (
     <SafeAreaView style={styles.container}>
       <ScrollView style={styles.scrollView} showsVerticalScrollIndicator={false}>
+        
+        {/* Header */}
         <Animated.View entering={FadeInDown.duration(600)} style={styles.header}>
-          <Text style={styles.title}>Adhkar & Duas</Text>
+          <Text style={styles.title}>✨ Adhkar & Duas</Text>
           <Text style={styles.subtitle}>Daily remembrance of Allah</Text>
         </Animated.View>
 
+        {/* Search */}
         <Animated.View entering={FadeInDown.delay(300).duration(600)} style={styles.searchContainer}>
           <View style={styles.searchInputContainer}>
             <Search size={20} color={isDark ? '#9CA3AF' : '#6B7280'} />
@@ -95,6 +98,7 @@ export default function AdhkarScreen() {
           </View>
         </Animated.View>
 
+        {/* Categories */}
         <Animated.View entering={FadeInDown.delay(500).duration(600)}>
           <ScrollView
             horizontal
@@ -113,13 +117,18 @@ export default function AdhkarScreen() {
                     selectedCategory === category.id && styles.selectedCategoryCard,
                   ]}
                   onPress={() => setSelectedCategory(category.id)}
-                  activeOpacity={0.7}
+                  activeOpacity={0.85}
                 >
-                  <category.icon
-                    size={24}
-                    color={selectedCategory === category.id ? '#FFFFFF' : category.color}
-                    strokeWidth={2}
-                  />
+                  <View style={[
+                    styles.categoryIconWrapper,
+                    { backgroundColor: selectedCategory === category.id ? category.gradient[0] : isDark ? '#1F2937' : '#F3F4F6' }
+                  ]}>
+                    <category.icon
+                      size={22}
+                      color={selectedCategory === category.id ? '#FFFFFF' : category.gradient[0]}
+                      strokeWidth={2}
+                    />
+                  </View>
                   <Text style={[
                     styles.categoryName,
                     selectedCategory === category.id && styles.selectedCategoryText,
@@ -132,6 +141,7 @@ export default function AdhkarScreen() {
           </ScrollView>
         </Animated.View>
 
+        {/* Adhkar List */}
         <View style={styles.adhkarList}>
           {filteredAdhkar.map((dhikr, index) => (
             <Animated.View
@@ -139,6 +149,7 @@ export default function AdhkarScreen() {
               entering={FadeInDown.delay(800 + index * 100).duration(600)}
             >
               <View style={styles.dhikrCard}>
+                {/* Header */}
                 <View style={styles.dhikrHeader}>
                   <Text style={styles.dhikrCount}>
                     {dhikr.count} {dhikr.count === 1 ? 'time' : 'times'}
@@ -154,11 +165,17 @@ export default function AdhkarScreen() {
                     />
                   </TouchableOpacity>
                 </View>
-                
+
+                {/* Arabic */}
                 <Text style={styles.arabicText}>{dhikr.arabic}</Text>
+
+                {/* Transliteration */}
                 <Text style={styles.transliteration}>{dhikr.transliteration}</Text>
+
+                {/* Translation */}
                 <Text style={styles.translation}>{dhikr.translation}</Text>
-                
+
+                {/* Source */}
                 {dhikr.source && (
                   <View style={styles.sourceContainer}>
                     <Bookmark size={14} color={isDark ? '#9CA3AF' : '#6B7280'} />
@@ -176,9 +193,10 @@ export default function AdhkarScreen() {
 
 function createStyles(isDark: boolean) {
   return StyleSheet.create({
-    container: {
+	container: {
+      fontFamily: 'PlusJakartaSans-SemiBold',
       flex: 1,
-      backgroundColor: isDark ? '#111827' : '#F9FAFB',
+      backgroundColor: isDark ? '#0F172A' : '#F9FAFB',
     },
     scrollView: {
       flex: 1,
@@ -189,14 +207,14 @@ function createStyles(isDark: boolean) {
       paddingBottom: 20,
     },
     title: {
-      fontSize: 28,
-      fontWeight: '700',
-      color: isDark ? '#F9FAFB' : '#1F2937',
-      marginBottom: 4,
+      fontSize: 30,
+      fontWeight: '800',
+      color: isDark ? '#F9FAFB' : '#111827',
+      marginBottom: 6,
     },
     subtitle: {
       fontSize: 16,
-      color: isDark ? '#9CA3AF' : '#6B7280',
+      color: isDark ? '#94A3B8' : '#6B7280',
     },
     searchContainer: {
       marginBottom: 20,
@@ -204,64 +222,76 @@ function createStyles(isDark: boolean) {
     searchInputContainer: {
       flexDirection: 'row',
       alignItems: 'center',
-      backgroundColor: isDark ? '#1F2937' : '#FFFFFF',
-      borderRadius: 12,
-      paddingHorizontal: 16,
+      backgroundColor: isDark ? '#1E293B' : '#FFFFFF',
+      borderRadius: 50,
+      paddingHorizontal: 18,
       paddingVertical: 12,
       gap: 12,
       borderWidth: 1,
-      borderColor: isDark ? '#374151' : '#E5E7EB',
+      borderColor: isDark ? '#334155' : '#E5E7EB',
+      shadowColor: '#000',
+      shadowOpacity: 0.05,
+      shadowRadius: 5,
+      elevation: 2,
     },
     searchInput: {
       flex: 1,
       fontSize: 16,
-      color: isDark ? '#F9FAFB' : '#1F2937',
+      color: isDark ? '#F9FAFB' : '#111827',
     },
     categoriesContainer: {
       marginBottom: 30,
     },
     categoriesContent: {
       paddingRight: 20,
-      gap: 12,
+      gap: 14,
     },
     categoryCard: {
-      backgroundColor: isDark ? '#1F2937' : '#FFFFFF',
+      backgroundColor: isDark ? '#1E293B' : '#FFFFFF',
       borderRadius: 16,
       paddingHorizontal: 20,
-      paddingVertical: 16,
+      paddingVertical: 14,
       alignItems: 'center',
       gap: 8,
       minWidth: 100,
       borderWidth: 1,
-      borderColor: isDark ? '#374151' : '#E5E7EB',
+      borderColor: isDark ? '#334155' : '#E5E7EB',
+      shadowColor: '#000',
+      shadowOpacity: 0.05,
+      shadowRadius: 4,
+      elevation: 2,
     },
     selectedCategoryCard: {
       backgroundColor: '#059669',
       borderColor: '#047857',
     },
+    categoryIconWrapper: {
+      padding: 10,
+      borderRadius: 50,
+      marginBottom: 4,
+    },
     categoryName: {
       fontSize: 14,
       fontWeight: '600',
-      color: isDark ? '#F9FAFB' : '#1F2937',
+      color: isDark ? '#F9FAFB' : '#111827',
     },
     selectedCategoryText: {
       color: '#FFFFFF',
     },
     adhkarList: {
-      gap: 20,
+      gap: 22,
       paddingBottom: 30,
     },
     dhikrCard: {
-      backgroundColor: isDark ? '#1F2937' : '#FFFFFF',
-      borderRadius: 16,
-      padding: 20,
+      backgroundColor: isDark ? 'rgba(30,41,59,0.8)' : 'rgba(255,255,255,0.9)',
+      borderRadius: 20,
+      padding: 22,
       shadowColor: '#000',
-      shadowOffset: { width: 0, height: 2 },
-      shadowOpacity: isDark ? 0.3 : 0.1,
-      shadowRadius: 8,
-      elevation: 4,
+      shadowOpacity: isDark ? 0.25 : 0.08,
+      shadowRadius: 12,
+      elevation: 5,
       borderWidth: 1,
-      borderColor: isDark ? '#374151' : '#E5E7EB',
+      borderColor: isDark ? '#334155' : '#E5E7EB',
     },
     dhikrHeader: {
       flexDirection: 'row',
@@ -271,33 +301,33 @@ function createStyles(isDark: boolean) {
     },
     dhikrCount: {
       fontSize: 14,
-      fontWeight: '600',
+      fontWeight: '700',
       color: '#059669',
-      backgroundColor: isDark ? '#064E3B' : '#ECFDF5',
-      paddingHorizontal: 12,
+      backgroundColor: isDark ? '#064E3B' : '#D1FAE5',
+      paddingHorizontal: 14,
       paddingVertical: 6,
       borderRadius: 20,
     },
     favoriteButton: {
-      padding: 4,
+      padding: 6,
     },
     arabicText: {
-      fontSize: 24,
-      fontWeight: '600',
-      color: isDark ? '#F9FAFB' : '#1F2937',
+      fontSize: 28,
+		fontWeight: '700',
+      color: isDark ? '#F9FAFB' : '#111827',
       textAlign: 'right',
-      lineHeight: 40,
-      marginBottom: 12,
+      lineHeight: 42,
+      marginBottom: 14,
     },
     transliteration: {
       fontSize: 16,
       fontStyle: 'italic',
-      color: isDark ? '#D1D5DB' : '#4B5563',
+      color: isDark ? '#CBD5E1' : '#4B5563',
       marginBottom: 8,
     },
     translation: {
       fontSize: 16,
-      color: isDark ? '#D1D5DB' : '#4B5563',
+      color: isDark ? '#E2E8F0' : '#374151',
       lineHeight: 24,
       marginBottom: 12,
     },
@@ -308,7 +338,7 @@ function createStyles(isDark: boolean) {
     },
     source: {
       fontSize: 12,
-      color: isDark ? '#9CA3AF' : '#6B7280',
+      color: isDark ? '#94A3B8' : '#6B7280',
       fontStyle: 'italic',
     },
   });
