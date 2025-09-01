@@ -7,13 +7,41 @@ import {
   TouchableOpacity,
   useColorScheme,
   StatusBar,
+  Dimensions,
+  Platform,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import Animated, { FadeInDown, FadeIn } from 'react-native-reanimated';
-import { Clock, BookOpen, Circle, Heart, Calendar } from 'lucide-react-native';
+import Animated, { 
+  FadeIn, 
+  FadeInDown, 
+  SlideInRight,
+  useSharedValue,
+  useAnimatedStyle,
+  withTiming,
+  withSequence,
+  withDelay,
+  interpolate,
+  Extrapolate
+} from 'react-native-reanimated';
+import { 
+  Clock, 
+  BookOpen, 
+  Circle, 
+  Heart, 
+  Calendar, 
+  MapPin, 
+  Star, 
+  Sunrise,
+  ChevronRight,
+  Menu,
+  Bell
+} from 'lucide-react-native';
 import { useRouter } from 'expo-router';
 import { prayerService } from '@/services/prayerService';
 import { PrayerTimes } from '@/types/prayer';
+import { LinearGradient } from 'expo-linear-gradient';
+
+const { width } = Dimensions.get('window');
 
 export default function Dashboard() {
   const colorScheme = useColorScheme();
@@ -21,15 +49,52 @@ export default function Dashboard() {
   const [prayerTimes, setPrayerTimes] = useState<PrayerTimes | null>(null);
   const [nextPrayer, setNextPrayer] = useState<string>('');
   const [timeUntilNext, setTimeUntilNext] = useState<string>('');
+  const [currentTime, setCurrentTime] = useState(new Date());
 
   const isDark = colorScheme === 'dark';
   const styles = createStyles(isDark);
 
+  const headerScrollOffset = useSharedValue(0);
+  const headerHeight = useSharedValue(220);
+
   useEffect(() => {
     loadPrayerTimes();
     const interval = setInterval(updateNextPrayer, 60000);
-    return () => clearInterval(interval);
+    const timeInterval = setInterval(() => setCurrentTime(new Date()), 1000);
+    
+    return () => {
+      clearInterval(interval);
+      clearInterval(timeInterval);
+    };
   }, []);
+
+  const headerAnimatedStyle = useAnimatedStyle(() => {
+    return {
+      height: interpolate(
+        headerScrollOffset.value,
+        [0, 100],
+        [220, 120],
+        Extrapolate.CLAMP
+      ),
+      paddingTop: interpolate(
+        headerScrollOffset.value,
+        [0, 100],
+        [60, 20],
+        Extrapolate.CLAMP
+      ),
+    };
+  });
+
+  const titleAnimatedStyle = useAnimatedStyle(() => {
+    return {
+      fontSize: interpolate(
+        headerScrollOffset.value,
+        [0, 100],
+        [32, 24],
+        Extrapolate.CLAMP
+      ),
+    };
+  });
 
   const loadPrayerTimes = async () => {
     try {
@@ -64,12 +129,17 @@ export default function Dashboard() {
         const diffMins = Math.floor(diffMs / 60000);
         const diffHours = Math.floor(diffMins / 60);
         const remainingMins = diffMins % 60;
-        setTimeUntilNext(`${diffHours}h ${remainingMins}m`);
+        
+        if (diffHours > 0) {
+          setTimeUntilNext(`${diffHours}h ${remainingMins}m`);
+        } else {
+          setTimeUntilNext(`${remainingMins}m`);
+        }
         return;
       }
     }
     
-    // If no prayer today, next is tomorrow's Fajr
+    // If all prayers have passed, show first prayer of next day
     setNextPrayer('Fajr');
     setTimeUntilNext('Tomorrow');
   };
@@ -77,111 +147,242 @@ export default function Dashboard() {
   const quickActions = [
     {
       title: 'Prayer Times',
-      subtitle: `Next: ${nextPrayer} in ${timeUntilNext}`,
+      subtitle: `Next: ${nextPrayer}`,
       icon: Clock,
-      color: '#059669',
+      gradient: ['#10B981', '#059669'],
       onPress: () => router.push('/prayer'),
     },
     {
-      title: 'Morning Adhkar',
-      subtitle: 'Start your day with remembrance',
-      icon: BookOpen,
-      color: '#F59E0B',
+      title: 'Adhkar',
+      subtitle: 'Daily remembrance',
+      icon: Sunrise,
+      gradient: ['#F59E0B', '#D97706'],
       onPress: () => router.push('/adhkar'),
     },
     {
-      title: 'Tasbih Counter',
-      subtitle: 'Digital misbaha for dhikr',
+      title: 'Tasbih',
+      subtitle: 'Digital counter',
       icon: Circle,
-      color: '#8B5CF6',
+      gradient: ['#8B5CF6', '#7C3AED'],
       onPress: () => router.push('/tasbih'),
     },
     {
-      title: 'Favorites',
-      subtitle: 'Your saved duas and adhkar',
-      icon: Heart,
-      color: '#EF4444',
-      onPress: () => router.push('/adhkar'),
+      title: 'Quran',
+      subtitle: 'Read and listen',
+      icon: BookOpen,
+      gradient: ['#3B82F6', '#2563EB'],
+      onPress: () => router.push('/quran'),
     },
   ];
 
-  return (
-    <SafeAreaView style={styles.container}>
-      <StatusBar style={isDark ? 'light' : 'dark'} />
-      <ScrollView style={styles.scrollView} showsVerticalScrollIndicator={false}>
-        <Animated.View entering={FadeIn.duration(600)} style={styles.header}>
-          <Text style={styles.greeting}>Assalamu Alaikum</Text>
-          <Text style={styles.userName}>Abdullah</Text>
-          <View style={styles.dateContainer}>
-            <Calendar size={16} color={isDark ? '#9CA3AF' : '#6B7280'} />
-            <Text style={styles.date}>
-              {new Date().toLocaleDateString('en-US', {
-                weekday: 'long',
-                year: 'numeric',
-                month: 'long',
-                day: 'numeric',
-              })}
-            </Text>
-          </View>
-        </Animated.View>
+  const stats = [
+    { icon: Clock, value: '5', label: 'Prayers Today', progress: 100, color: '#10B981' },
+    { icon: Circle, value: '33', label: 'Tasbih Count', progress: 66, color: '#8B5CF6' },
+    { icon: BookOpen, value: '7', label: 'Duas Read', progress: 47, color: '#F59E0B' },
+    { icon: Star, value: '28', label: 'Streak Days', progress: 80, color: '#EF4444' },
+  ];
 
+  const formatTime = (date) => {
+    return date.toLocaleTimeString('en-US', { 
+      hour: '2-digit', 
+      minute: '2-digit',
+      hour12: true 
+    });
+  };
+
+  return (
+    <SafeAreaView style={styles.container} edges={['top']}>
+      <StatusBar 
+        barStyle={isDark ? 'light-content' : 'dark-content'} 
+        backgroundColor="transparent" 
+        translucent 
+      />
+      
+      <Animated.View style={[styles.header, headerAnimatedStyle]}>
+        <LinearGradient
+          colors={isDark ? ['#1F2937', '#111827'] : ['#FFFFFF', '#F8FAFC']}
+          style={StyleSheet.absoluteFill}
+        />
+        
+        <View style={styles.headerContent}>
+          <View style={styles.headerTop}>
+            <View>
+              <Text style={styles.greeting}>Assalamu Alaikum</Text>
+              <Animated.Text style={[styles.userName, titleAnimatedStyle]}>
+                Abdullah
+              </Animated.Text>
+            </View>
+            <View style={styles.headerIcons}>
+              <TouchableOpacity style={styles.iconButton}>
+                <Bell size={22} color={isDark ? '#D1D5DB' : '#4B5563'} />
+              </TouchableOpacity>
+              <TouchableOpacity style={styles.iconButton}>
+                <Menu size={22} color={isDark ? '#D1D5DB' : '#4B5563'} />
+              </TouchableOpacity>
+            </View>
+          </View>
+          
+          <View style={styles.dateLocationContainer}>
+            <View style={styles.dateTimeContainer}>
+              <View style={styles.timeContainer}>
+                <Text style={styles.timeText}>{formatTime(currentTime)}</Text>
+              </View>
+              <View style={styles.dateContainer}>
+                <Calendar size={14} color={isDark ? '#9CA3AF' : '#6B7280'} />
+                <Text style={styles.date}>
+                  {new Date().toLocaleDateString('en-US', {
+                    weekday: 'short',
+                    month: 'short',
+                    day: 'numeric',
+                  })}
+                </Text>
+              </View>
+            </View>
+            
+            <View style={styles.locationContainer}>
+              <MapPin size={14} color={isDark ? '#9CA3AF' : '#6B7280'} />
+              <Text style={styles.location}>New York, NY</Text>
+            </View>
+          </View>
+        </View>
+      </Animated.View>
+
+      <Animated.ScrollView 
+        style={styles.scrollView}
+        showsVerticalScrollIndicator={false}
+        contentContainerStyle={styles.scrollContent}
+        scrollEventThrottle={16}
+        onScroll={(event) => {
+          headerScrollOffset.value = event.nativeEvent.contentOffset.y;
+        }}
+      >
+        {/* Next Prayer Card */}
         <Animated.View 
-          entering={FadeInDown.delay(300).duration(600)} 
+          entering={FadeInDown.duration(700)} 
           style={styles.nextPrayerCard}
         >
-          <Text style={styles.nextPrayerTitle}>Next Prayer</Text>
-          <Text style={styles.nextPrayerName}>{nextPrayer}</Text>
-          <Text style={styles.nextPrayerTime}>{timeUntilNext}</Text>
+          <LinearGradient
+            colors={['#10B981', '#059669']}
+            style={styles.nextPrayerGradient}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 1 }}
+          >
+            <View style={styles.nextPrayerContent}>
+              <View style={styles.nextPrayerLeft}>
+                <Text style={styles.nextPrayerTitle}>Next Prayer</Text>
+                <Text style={styles.nextPrayerName}>{nextPrayer}</Text>
+                <Text style={styles.nextPrayerTime}>{timeUntilNext}</Text>
+              </View>
+              <View style={styles.nextPrayerIcon}>
+                <Clock size={28} color="#FFFFFF" />
+              </View>
+            </View>
+          </LinearGradient>
         </Animated.View>
 
-        <Animated.View entering={FadeInDown.delay(500).duration(600)}>
-          <Text style={styles.sectionTitle}>Quick Actions</Text>
-          <View style={styles.quickActionsContainer}>
+        {/* Quick Actions */}
+        <View style={styles.section}>
+          <View style={styles.sectionHeader}>
+            <Text style={styles.sectionTitle}>Quick Access</Text>
+            <TouchableOpacity style={styles.viewAllButton}>
+              <Text style={styles.viewAllText}>View All</Text>
+              <ChevronRight size={16} color={isDark ? '#9CA3AF' : '#6B7280'} />
+            </TouchableOpacity>
+          </View>
+          
+          <View style={styles.quickActionsGrid}>
             {quickActions.map((action, index) => (
               <Animated.View
                 key={action.title}
-                entering={FadeInDown.delay(700 + index * 100).duration(600)}
+                entering={SlideInRight.delay(index * 100).duration(600)}
+                style={styles.actionCardContainer}
               >
                 <TouchableOpacity
-                  style={[styles.actionCard, { borderLeftColor: action.color }]}
+                  style={styles.actionCard}
                   onPress={action.onPress}
-                  activeOpacity={0.7}
+                  activeOpacity={0.9}
                 >
-                  <View style={styles.actionIconContainer}>
-                    <action.icon 
-                      size={24} 
-                      color={action.color} 
-                      strokeWidth={2}
-                    />
-                  </View>
-                  <View style={styles.actionContent}>
+                  <LinearGradient
+                    colors={action.gradient}
+                    style={styles.actionCardGradient}
+                    start={{ x: 0, y: 0 }}
+                    end={{ x: 1, y: 1 }}
+                  >
+                    <View style={styles.actionIconContainer}>
+                      <action.icon size={22} color="#FFFFFF" strokeWidth={2.5} />
+                    </View>
                     <Text style={styles.actionTitle}>{action.title}</Text>
                     <Text style={styles.actionSubtitle}>{action.subtitle}</Text>
-                  </View>
+                  </LinearGradient>
                 </TouchableOpacity>
               </Animated.View>
             ))}
           </View>
-        </Animated.View>
+        </View>
 
-        <Animated.View entering={FadeInDown.delay(1100).duration(600)}>
-          <Text style={styles.sectionTitle}>Today's Progress</Text>
-          <View style={styles.progressContainer}>
-            <View style={styles.progressItem}>
-              <Text style={styles.progressNumber}>5</Text>
-              <Text style={styles.progressLabel}>Prayers Completed</Text>
-            </View>
-            <View style={styles.progressItem}>
-              <Text style={styles.progressNumber}>247</Text>
-              <Text style={styles.progressLabel}>Tasbih Count</Text>
-            </View>
-            <View style={styles.progressItem}>
-              <Text style={styles.progressNumber}>12</Text>
-              <Text style={styles.progressLabel}>Duas Read</Text>
-            </View>
+        {/* Today's Progress */}
+        <View style={styles.section}>
+          <View style={styles.sectionHeader}>
+            <Text style={styles.sectionTitle}>Today's Progress</Text>
+            <TouchableOpacity style={styles.viewAllButton}>
+              <Text style={styles.viewAllText}>Details</Text>
+              <ChevronRight size={16} color={isDark ? '#9CA3AF' : '#6B7280'} />
+            </TouchableOpacity>
           </View>
+          
+          <View style={styles.statsGrid}>
+            {stats.map((stat, index) => (
+              <Animated.View
+                key={stat.label}
+                entering={FadeInDown.delay(400 + index * 100).duration(600)}
+                style={styles.statCard}
+              >
+                <View style={styles.statCardContent}>
+                  <View style={[styles.statIconContainer, { backgroundColor: `${stat.color}15` }]}>
+                    <stat.icon size={18} color={stat.color} strokeWidth={2.5} />
+                  </View>
+                  <Text style={[styles.statValue, { color: stat.color }]}>{stat.value}</Text>
+                  <Text style={styles.statLabel}>{stat.label}</Text>
+                  
+                  <View style={styles.progressBar}>
+                    <View 
+                      style={[
+                        styles.progressFill, 
+                        { 
+                          width: `${stat.progress}%`,
+                          backgroundColor: stat.color
+                        }
+                      ]} 
+                    />
+                  </View>
+                </View>
+              </Animated.View>
+            ))}
+          </View>
+        </View>
+
+        {/* Islamic Quote */}
+        <Animated.View 
+          entering={FadeInDown.delay(800).duration(600)}
+          style={styles.quoteCard}
+        >
+          <LinearGradient
+            colors={['#8B5CF6', '#7C3AED']}
+            style={styles.quoteGradient}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 1 }}
+          >
+            <View style={styles.quoteIcon}>
+              <Text style={styles.quoteIconText}>❝</Text>
+            </View>
+            <Text style={styles.quoteText}>
+              "And whoever relies upon Allah - then He is sufficient for him. 
+              Indeed, Allah will accomplish His purpose."
+            </Text>
+            <Text style={styles.quoteSource}>— Quran 65:3</Text>
+          </LinearGradient>
         </Animated.View>
-      </ScrollView>
+      </Animated.ScrollView>
     </SafeAreaView>
   );
 }
@@ -190,140 +391,299 @@ function createStyles(isDark: boolean) {
   return StyleSheet.create({
     container: {
       flex: 1,
-      backgroundColor: isDark ? '#111827' : '#F9FAFB',
-    },
-    scrollView: {
-      flex: 1,
-      paddingHorizontal: 20,
+      backgroundColor: isDark ? '#111827' : '#F8FAFC',
     },
     header: {
-      paddingTop: 20,
-      paddingBottom: 30,
+      position: 'absolute',
+      top: 0,
+      left: 0,
+      right: 0,
+      zIndex: 10,
+      paddingHorizontal: 24,
+      overflow: 'hidden',
+    },
+    headerContent: {
+      flex: 1,
+      justifyContent: 'space-between',
+    },
+    headerTop: {
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      alignItems: 'flex-start',
     },
     greeting: {
-      fontSize: 28,
-      fontWeight: '700',
-      color: isDark ? '#F9FAFB' : '#1F2937',
+      fontSize: 16,
+      fontWeight: '500',
+      color: isDark ? '#9CA3AF' : '#6B7280',
       marginBottom: 4,
     },
     userName: {
-      fontSize: 18,
-      color: isDark ? '#9CA3AF' : '#6B7280',
-      marginBottom: 12,
+      fontWeight: '700',
+      color: isDark ? '#F9FAFB' : '#1F2937',
+      letterSpacing: -0.5,
+    },
+    headerIcons: {
+      flexDirection: 'row',
+      gap: 12,
+    },
+    iconButton: {
+      width: 40,
+      height: 40,
+      borderRadius: 20,
+      alignItems: 'center',
+      justifyContent: 'center',
+      backgroundColor: isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.05)',
+    },
+    dateLocationContainer: {
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      alignItems: 'flex-end',
+      marginBottom: 16,
+    },
+    dateTimeContainer: {
+      alignItems: 'flex-start',
+    },
+    timeContainer: {
+      marginBottom: 4,
+    },
+    timeText: {
+      fontSize: 28,
+      fontWeight: '700',
+      color: isDark ? '#F9FAFB' : '#1F2937',
     },
     dateContainer: {
       flexDirection: 'row',
       alignItems: 'center',
-      gap: 8,
+      gap: 6,
     },
     date: {
       fontSize: 14,
       color: isDark ? '#9CA3AF' : '#6B7280',
+      fontWeight: '500',
+    },
+    locationContainer: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 4,
+      paddingBottom: 4,
+    },
+    location: {
+      fontSize: 14,
+      color: isDark ? '#9CA3AF' : '#6B7280',
+    },
+    scrollView: {
+      flex: 1,
+      marginTop: 220,
+    },
+    scrollContent: {
+      paddingTop: 20,
+      paddingBottom: 40,
     },
     nextPrayerCard: {
-      backgroundColor: isDark ? '#1F2937' : '#FFFFFF',
-      borderRadius: 16,
-      padding: 24,
-      marginBottom: 30,
-      alignItems: 'center',
+      marginHorizontal: 24,
+      marginBottom: 32,
+      borderRadius: 20,
       shadowColor: '#000',
-      shadowOffset: { width: 0, height: 2 },
-      shadowOpacity: isDark ? 0.3 : 0.1,
-      shadowRadius: 8,
-      elevation: 4,
-      borderWidth: 1,
-      borderColor: isDark ? '#374151' : '#E5E7EB',
+      shadowOffset: { width: 0, height: 10 },
+      shadowOpacity: 0.2,
+      shadowRadius: 20,
+      elevation: 10,
+    },
+    nextPrayerGradient: {
+      borderRadius: 20,
+      padding: 24,
+    },
+    nextPrayerContent: {
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      alignItems: 'center',
+    },
+    nextPrayerLeft: {
+      flex: 1,
     },
     nextPrayerTitle: {
       fontSize: 16,
-      color: isDark ? '#9CA3AF' : '#6B7280',
+      color: 'rgba(255,255,255,0.8)',
       marginBottom: 8,
+      fontWeight: '500',
     },
     nextPrayerName: {
       fontSize: 32,
-      fontWeight: '700',
-      color: '#059669',
+      fontWeight: '800',
+      color: '#FFFFFF',
       marginBottom: 4,
+      letterSpacing: -0.5,
     },
     nextPrayerTime: {
-      fontSize: 18,
-      color: isDark ? '#D1D5DB' : '#4B5563',
+      fontSize: 16,
+      color: 'rgba(255,255,255,0.9)',
       fontWeight: '600',
+    },
+    nextPrayerIcon: {
+      width: 56,
+      height: 56,
+      borderRadius: 28,
+      backgroundColor: 'rgba(255,255,255,0.2)',
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    section: {
+      marginBottom: 32,
+    },
+    sectionHeader: {
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      alignItems: 'center',
+      paddingHorizontal: 24,
+      marginBottom: 16,
     },
     sectionTitle: {
       fontSize: 20,
       fontWeight: '700',
       color: isDark ? '#F9FAFB' : '#1F2937',
-      marginBottom: 16,
+      letterSpacing: -0.5,
     },
-    quickActionsContainer: {
-      gap: 12,
-      marginBottom: 30,
-    },
-    actionCard: {
-      backgroundColor: isDark ? '#1F2937' : '#FFFFFF',
-      borderRadius: 12,
-      padding: 16,
+    viewAllButton: {
       flexDirection: 'row',
       alignItems: 'center',
+      gap: 2,
+    },
+    viewAllText: {
+      fontSize: 14,
+      color: isDark ? '#9CA3AF' : '#6B7280',
+      fontWeight: '500',
+    },
+    quickActionsGrid: {
+      flexDirection: 'row',
+      flexWrap: 'wrap',
+      paddingHorizontal: 20,
+      gap: 12,
+    },
+    actionCardContainer: {
+      width: (width - 52) / 2,
+    },
+    actionCard: {
+      borderRadius: 16,
       shadowColor: '#000',
-      shadowOffset: { width: 0, height: 1 },
-      shadowOpacity: isDark ? 0.2 : 0.05,
-      shadowRadius: 4,
-      elevation: 2,
-      borderLeftWidth: 4,
-      borderWidth: 1,
-      borderColor: isDark ? '#374151' : '#E5E7EB',
+      shadowOffset: { width: 0, height: 6 },
+      shadowOpacity: 0.1,
+      shadowRadius: 12,
+      elevation: 5,
+      overflow: 'hidden',
+    },
+    actionCardGradient: {
+      borderRadius: 16,
+      padding: 20,
+      minHeight: 140,
+      justifyContent: 'space-between',
     },
     actionIconContainer: {
-      width: 48,
-      height: 48,
-      borderRadius: 12,
-      backgroundColor: isDark ? '#374151' : '#F3F4F6',
+      width: 44,
+      height: 44,
+      borderRadius: 22,
       alignItems: 'center',
       justifyContent: 'center',
-      marginRight: 16,
-    },
-    actionContent: {
-      flex: 1,
+      backgroundColor: 'rgba(255,255,255,0.2)',
+      marginBottom: 16,
     },
     actionTitle: {
       fontSize: 16,
-      fontWeight: '600',
-      color: isDark ? '#F9FAFB' : '#1F2937',
-      marginBottom: 2,
-    },
-    actionSubtitle: {
-      fontSize: 14,
-      color: isDark ? '#9CA3AF' : '#6B7280',
-    },
-    progressContainer: {
-      flexDirection: 'row',
-      justifyContent: 'space-between',
-      backgroundColor: isDark ? '#1F2937' : '#FFFFFF',
-      borderRadius: 16,
-      padding: 20,
-      shadowColor: '#000',
-      shadowOffset: { width: 0, height: 2 },
-      shadowOpacity: isDark ? 0.2 : 0.05,
-      shadowRadius: 8,
-      elevation: 3,
-      borderWidth: 1,
-      borderColor: isDark ? '#374151' : '#E5E7EB',
-    },
-    progressItem: {
-      alignItems: 'center',
-    },
-    progressNumber: {
-      fontSize: 24,
       fontWeight: '700',
-      color: '#059669',
+      color: '#FFFFFF',
       marginBottom: 4,
     },
-    progressLabel: {
-      fontSize: 12,
+    actionSubtitle: {
+      fontSize: 13,
+      color: 'rgba(255,255,255,0.8)',
+    },
+    statsGrid: {
+      flexDirection: 'row',
+      flexWrap: 'wrap',
+      paddingHorizontal: 20,
+      gap: 12,
+    },
+	statCard: {
+      width: (width - 52) / 2,
+      borderRadius: 16,
+      backgroundColor: isDark ? '#1F2937' : '#FFFFFF',
+      shadowColor: '#000',
+      shadowOffset: { width: 0, height: 4 },
+      shadowOpacity: isDark ? 0.3 : 0.08,
+      shadowRadius: 12,
+      elevation: 5,
+      borderWidth: 1,
+      borderColor: isDark ? '#374151' : '#F1F5F9',
+    },
+    statCardContent: {
+      padding: 20,
+    },
+    statIconContainer: {
+      width: 40,
+      height: 40,
+      borderRadius: 20,
+      alignItems: 'center',
+      justifyContent: 'center',
+      marginBottom: 12,
+    },
+    statValue: {
+      fontSize: 24,
+      fontWeight: '800',
+      marginBottom: 4,
+      letterSpacing: -0.5,
+    },
+    statLabel: {
+      fontSize: 13,
       color: isDark ? '#9CA3AF' : '#6B7280',
+      fontWeight: '500',
+      marginBottom: 12,
+    },
+    progressBar: {
+      height: 4,
+      backgroundColor: isDark ? '#374151' : '#E5E7EB',
+      borderRadius: 2,
+      overflow: 'hidden',
+    },
+    progressFill: {
+      height: '100%',
+      borderRadius: 2,
+    },
+    quoteCard: {
+      marginHorizontal: 24,
+      borderRadius: 20,
+      shadowColor: '#000',
+      shadowOffset: { width: 0, height: 10 },
+      shadowOpacity: 0.2,
+      shadowRadius: 20,
+      elevation: 10,
+      overflow: 'hidden',
+    },
+    quoteGradient: {
+      borderRadius: 20,
+      padding: 24,
+      alignItems: 'center',
+    },
+    quoteIcon: {
+      marginBottom: 12,
+    },
+    quoteIconText: {
+      fontSize: 32,
+      color: '#FFFFFF',
+      opacity: 0.8,
+    },
+    quoteText: {
+      fontSize: 16,
+      color: '#FFFFFF',
+      lineHeight: 24,
       textAlign: 'center',
+      marginBottom: 12,
+      fontWeight: '500',
+    },
+    quoteSource: {
+      fontSize: 14,
+      color: '#FFFFFF',
+      textAlign: 'center',
+      opacity: 0.9,
+      fontWeight: '600',
     },
   });
 }
