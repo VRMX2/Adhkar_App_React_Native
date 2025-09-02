@@ -26,7 +26,8 @@ import {
   deleteDoc,
   collection,
   serverTimestamp,
-  Firestore
+  Firestore,
+  Timestamp
 } from 'firebase/firestore';
 import { getStorage, ref, uploadBytes, getDownloadURL, deleteObject } from 'firebase/storage';
 
@@ -80,6 +81,37 @@ export interface UserStats {
   streakDays: number;
   lastActiveDate: Date;
 }
+
+// Helper function to safely convert timestamps to Date objects
+const safeToDate = (timestamp: any): Date => {
+  if (!timestamp) {
+    return new Date();
+  }
+  
+  // If it's already a Date object
+  if (timestamp instanceof Date) {
+    return timestamp;
+  }
+  
+  // If it's a Firestore Timestamp
+  if (timestamp && typeof timestamp.toDate === 'function') {
+    return timestamp.toDate();
+  }
+  
+  // If it's a timestamp object with seconds and nanoseconds
+  if (timestamp && typeof timestamp === 'object' && timestamp.seconds) {
+    return new Date(timestamp.seconds * 1000 + (timestamp.nanoseconds || 0) / 1000000);
+  }
+  
+  // If it's a string or number, try to parse it
+  if (typeof timestamp === 'string' || typeof timestamp === 'number') {
+    const date = new Date(timestamp);
+    return isNaN(date.getTime()) ? new Date() : date;
+  }
+  
+  // Fallback to current date
+  return new Date();
+};
 
 // Helper function to clean undefined values from objects
 const cleanUndefinedValues = (obj: any): any => {
@@ -149,6 +181,9 @@ class AuthService {
       } else {
         // Update last login
         await this.updateLastLogin(firebaseUser.uid);
+        
+        // Refresh userData to get updated lastLoginAt
+        userData = await this.getUserFromFirestore(firebaseUser.uid) || userData;
       }
       
       // Get tokens
@@ -181,7 +216,12 @@ class AuthService {
       });
 
       // Send email verification
-      await sendEmailVerification(firebaseUser);
+      try {
+        await sendEmailVerification(firebaseUser);
+      } catch (verificationError) {
+        console.warn('Email verification failed:', verificationError);
+        // Don't throw here, continue with user creation
+      }
 
       // Create user document in Firestore
       const userData: User = {
@@ -235,13 +275,29 @@ class AuthService {
       if (stored) {
         const userData = JSON.parse(stored);
         
+        // Ensure dates are properly converted when reading from storage
+        if (userData) {
+          userData.createdAt = safeToDate(userData.createdAt);
+          userData.lastLoginAt = safeToDate(userData.lastLoginAt);
+          
+          if (userData.profile?.dateOfBirth) {
+            userData.profile.dateOfBirth = safeToDate(userData.profile.dateOfBirth);
+          }
+        }
+        
         // Sync with Firebase if user is still authenticated
         const currentUser = this.auth.currentUser;
         if (currentUser) {
-          const freshData = await this.getUserFromFirestore(currentUser.uid);
-          if (freshData) {
-            await AsyncStorage.setItem(this.userKey, JSON.stringify(freshData));
-            return freshData;
+          try {
+            const freshData = await this.getUserFromFirestore(currentUser.uid);
+            if (freshData) {
+              await AsyncStorage.setItem(this.userKey, JSON.stringify(freshData));
+              return freshData;
+            }
+          } catch (syncError) {
+            console.warn('Failed to sync user data:', syncError);
+            // Return cached data if sync fails
+            return userData;
           }
         }
         
@@ -449,7 +505,7 @@ class AuthService {
           dhikrCount: data.dhikrCount || 0,
           quranReadingTime: data.quranReadingTime || 0,
           streakDays: data.streakDays || 0,
-          lastActiveDate: data.lastActiveDate?.toDate() || new Date(),
+          lastActiveDate: safeToDate(data.lastActiveDate),
         };
       }
       return null;
@@ -482,11 +538,16 @@ class AuthService {
   onAuthStateChanged(callback: (user: User | null) => void): () => void {
     return onAuthStateChanged(this.auth, async (firebaseUser: FirebaseUser | null) => {
       if (firebaseUser) {
-        const userData = await this.getUserFromFirestore(firebaseUser.uid);
-        if (userData) {
-          await AsyncStorage.setItem(this.userKey, JSON.stringify(userData));
-          callback(userData);
-        } else {
+        try {
+          const userData = await this.getUserFromFirestore(firebaseUser.uid);
+          if (userData) {
+            await AsyncStorage.setItem(this.userKey, JSON.stringify(userData));
+            callback(userData);
+          } else {
+            callback(null);
+          }
+        } catch (error) {
+          console.error('Error in auth state change:', error);
           callback(null);
         }
       } else {
@@ -522,12 +583,12 @@ class AuthService {
       if (userDoc.exists()) {
         const data = userDoc.data();
         const userData: User = {
-          id: data.id,
+          id: data.id || uid, // Fallback to uid if id is missing
           email: data.email,
           name: data.name,
           isEmailVerified: data.isEmailVerified,
-          createdAt: data.createdAt?.toDate() || new Date(),
-          lastLoginAt: data.lastLoginAt?.toDate() || new Date(),
+          createdAt: safeToDate(data.createdAt),
+          lastLoginAt: safeToDate(data.lastLoginAt),
           preferences: data.preferences || {
             notifications: true,
             darkMode: false,
@@ -539,6 +600,11 @@ class AuthService {
         // Only add avatar if it exists
         if (data.avatar) {
           userData.avatar = data.avatar;
+        }
+
+        // Handle nested date objects
+        if (userData.profile?.dateOfBirth) {
+          userData.profile.dateOfBirth = safeToDate(userData.profile.dateOfBirth);
         }
 
         return userData;
@@ -553,6 +619,13 @@ class AuthService {
   private async createUserStats(uid: string): Promise<void> {
     try {
       const statsRef = doc(this.db, 'userStats', uid);
+      
+      // Check if stats already exist
+      const existingStats = await getDoc(statsRef);
+      if (existingStats.exists()) {
+        return; // Stats already exist, don't overwrite
+      }
+      
       await setDoc(statsRef, {
         prayersCompleted: 0,
         dhikrCount: 0,
@@ -572,6 +645,7 @@ class AuthService {
       const userRef = doc(this.db, 'users', uid);
       await updateDoc(userRef, {
         lastLoginAt: serverTimestamp(),
+        updatedAt: serverTimestamp(),
       });
     } catch (error) {
       console.error('Error updating last login:', error);
@@ -600,6 +674,8 @@ class AuthService {
         return 'This account has been disabled.';
       case 'auth/operation-not-allowed':
         return 'This operation is not allowed.';
+      case 'auth/invalid-credential':
+        return 'Invalid credentials. Please check your email and password.';
       default:
         return 'An error occurred. Please try again.';
     }

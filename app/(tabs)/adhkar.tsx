@@ -1,4 +1,3 @@
-// screens/AdhkarScreen.tsx
 import React, { useState, useEffect, useRef } from 'react';
 import {
   View,
@@ -12,30 +11,31 @@ import {
   Modal,
   Vibration,
   ActivityIndicator,
-,} from 'react-native';
+  Animated,
+} from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import Animated as ReanimatedView, { FadeInDown, SlideInRight } from 'react-native-reanimated';
-import { 
-  Search, 
-  Heart, 
-  Sun, 
-  Moon, 
-  Star, 
-  Bookmark, 
-  Play, 
-  Pause, 
-  RotateCcw, 
-  Plus,
+import Reanimated, { FadeInDown, SlideInRight } from 'react-native-reanimated';
+import {
+  Search,
+  Heart,
+  Sun,
+  Moon,
+  Star,
+  Bookmark,
+  Play,
+  RotateCcw,
   TrendingUp,
   Target,
   Award,
-  Calendar,
   Clock,
-  Zap
+  Zap,
 } from 'lucide-react-native';
 import { firebaseAdhkarService, UserDhikrStats } from '@/services/adhkarService';
 import { useAuth } from '@/contexts/AuthContext';
 import { Dhikr, DhikrCategory } from '@/types/dhikr';
+
+// Create a simple view component if Reanimated.View isn't working
+const AnimatedView = Reanimated?.View || View;
 
 interface DhikrCounterProps {
   dhikr: Dhikr;
@@ -44,11 +44,11 @@ interface DhikrCounterProps {
   visible: boolean;
 }
 
-const DhikrCounter: React.FC<DhikrCounterProps> = ({ 
-  dhikr, 
-  onComplete, 
-  onClose, 
-  visible 
+const DhikrCounter: React.FC<DhikrCounterProps> = ({
+  dhikr,
+  onComplete,
+  onClose,
+  visible,
 }) => {
   const [count, setCount] = useState(0);
   const [isActive, setIsActive] = useState(false);
@@ -105,7 +105,7 @@ const DhikrCounter: React.FC<DhikrCounterProps> = ({
     if (!startTime || !sessionId) return;
 
     const duration = Math.floor((new Date().getTime() - startTime.getTime()) / 1000);
-    
+
     try {
       await firebaseAdhkarService.completeDhikrSession(sessionId, count, duration);
       onComplete(count, duration);
@@ -121,14 +121,16 @@ const DhikrCounter: React.FC<DhikrCounterProps> = ({
     setSessionId(null);
   };
 
+  const styles = createCounterStyles(isDark);
+
   return (
     <Modal visible={visible} animationType="slide" presentationStyle="pageSheet">
-      <SafeAreaView style={[styles.counterContainer, { backgroundColor: isDark ? '#0F172A' : '#FFFFFF' }]}>
+      <SafeAreaView style={styles.counterContainer}>
         <View style={styles.counterHeader}>
           <TouchableOpacity onPress={onClose} style={styles.closeButton}>
-            <Text style={[styles.closeText, { color: isDark ? '#F9FAFB' : '#111827' }]}>Close</Text>
+            <Text style={styles.closeText}>Close</Text>
           </TouchableOpacity>
-          <Text style={[styles.counterTitle, { color: isDark ? '#F9FAFB' : '#111827' }]}>
+          <Text style={styles.counterTitle}>
             {count}/{dhikr.count}
           </Text>
           <TouchableOpacity onPress={resetCounter} style={styles.resetButton}>
@@ -137,32 +139,20 @@ const DhikrCounter: React.FC<DhikrCounterProps> = ({
         </View>
 
         <ScrollView style={styles.counterContent} showsVerticalScrollIndicator={false}>
-          <Text style={[styles.counterArabic, { color: isDark ? '#F9FAFB' : '#111827' }]}>
-            {dhikr.arabic}
-          </Text>
-          <Text style={[styles.counterTransliteration, { color: isDark ? '#CBD5E1' : '#4B5563' }]}>
-            {dhikr.transliteration}
-          </Text>
-          <Text style={[styles.counterTranslation, { color: isDark ? '#E2E8F0' : '#374151' }]}>
-            {dhikr.translation}
-          </Text>
+          <Text style={styles.counterArabic}>{dhikr.arabic}</Text>
+          <Text style={styles.counterTransliteration}>{dhikr.transliteration}</Text>
+          <Text style={styles.counterTranslation}>{dhikr.translation}</Text>
         </ScrollView>
 
         <View style={styles.counterActions}>
           {!isActive ? (
-            <TouchableOpacity 
-              style={[styles.startButton, { backgroundColor: '#059669' }]} 
-              onPress={startSession}
-            >
+            <TouchableOpacity style={styles.startButton} onPress={startSession}>
               <Play size={24} color="#FFFFFF" />
               <Text style={styles.startButtonText}>Start</Text>
             </TouchableOpacity>
           ) : (
             <Animated.View style={{ transform: [{ scale: scaleAnim }] }}>
-              <TouchableOpacity 
-                style={[styles.countButton, { backgroundColor: '#059669' }]} 
-                onPress={incrementCount}
-              >
+              <TouchableOpacity style={styles.countButton} onPress={incrementCount}>
                 <Text style={styles.countButtonText}>{count}</Text>
                 <Text style={styles.countButtonSubtext}>Tap to count</Text>
               </TouchableOpacity>
@@ -209,18 +199,12 @@ export default function AdhkarScreen() {
     setIsLoading(true);
     try {
       if (user) {
-        // Initialize user data in Firebase
         await firebaseAdhkarService.initializeUserAdhkar(user.id);
-        
-        // Load user stats
         const stats = await firebaseAdhkarService.getUserDhikrStats();
         setUserStats(stats);
-
-        // Set up real-time listener for stats
         const unsubscribe = firebaseAdhkarService.onDhikrStatsChange((stats) => {
           setUserStats(stats);
         });
-
         return () => unsubscribe();
       }
     } catch (error) {
@@ -253,7 +237,7 @@ export default function AdhkarScreen() {
     try {
       if (favorites.includes(dhikrId)) {
         await firebaseAdhkarService.removeFavorite(dhikrId);
-        setFavorites(favorites.filter(id => id !== dhikrId));
+        setFavorites(favorites.filter((id) => id !== dhikrId));
       } else {
         await firebaseAdhkarService.addFavorite(dhikrId);
         setFavorites([...favorites, dhikrId]);
@@ -272,21 +256,21 @@ export default function AdhkarScreen() {
   const handleCounterComplete = (count: number, duration: number) => {
     setIsCounterVisible(false);
     setSelectedDhikr(null);
-    
+
     Alert.alert(
       'Dhikr Complete!',
       `You completed ${count} repetitions in ${Math.floor(duration / 60)}:${String(duration % 60).padStart(2, '0')}`,
       [{ text: 'Alhamdulillah', style: 'default' }]
     );
-    
-    // Reload stats
+
     initializeData();
   };
 
-  const filteredAdhkar = adhkar.filter(dhikr =>
-    dhikr.arabic.includes(searchQuery) ||
-    dhikr.translation.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    dhikr.transliteration.toLowerCase().includes(searchQuery.toLowerCase())
+  const filteredAdhkar = adhkar.filter(
+    (dhikr) =>
+      dhikr.arabic.includes(searchQuery) ||
+      dhikr.translation.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      dhikr.transliteration.toLowerCase().includes(searchQuery.toLowerCase())
   );
 
   if (isLoading) {
@@ -294,9 +278,7 @@ export default function AdhkarScreen() {
       <SafeAreaView style={styles.container}>
         <View style={styles.loadingContainer}>
           <ActivityIndicator size="large" color="#059669" />
-          <Text style={[styles.loadingText, { color: isDark ? '#F9FAFB' : '#111827' }]}>
-            Loading Adhkar...
-          </Text>
+          <Text style={styles.loadingText}>Loading Adhkar...</Text>
         </View>
       </SafeAreaView>
     );
@@ -305,28 +287,24 @@ export default function AdhkarScreen() {
   return (
     <SafeAreaView style={styles.container}>
       <ScrollView style={styles.scrollView} showsVerticalScrollIndicator={false}>
-        
         {/* Header with Stats Toggle */}
-        <ReanimatedView.View entering={FadeInDown.duration(600)} style={styles.header}>
+        <View style={styles.header}>
           <View style={styles.headerContent}>
             <View>
               <Text style={styles.title}>Adhkar & Duas</Text>
               <Text style={styles.subtitle}>Daily remembrance of Allah</Text>
             </View>
             {user && (
-              <TouchableOpacity 
-                onPress={() => setShowStats(!showStats)} 
-                style={styles.statsToggle}
-              >
+              <TouchableOpacity onPress={() => setShowStats(!showStats)} style={styles.statsToggle}>
                 <TrendingUp size={24} color="#059669" />
               </TouchableOpacity>
             )}
           </View>
-        </ReanimatedView.View>
+        </View>
 
-        {/* User Stats (if authenticated and visible) */}
+        {/* User Stats */}
         {user && showStats && userStats && (
-          <ReanimatedView.View entering={FadeInDown.delay(200).duration(600)} style={styles.statsContainer}>
+          <View style={styles.statsContainer}>
             <View style={styles.statsGrid}>
               <View style={styles.statCard}>
                 <Zap size={20} color="#F59E0B" />
@@ -342,18 +320,18 @@ export default function AdhkarScreen() {
                 <Clock size={20} color="#8B5CF6" />
                 <Text style={styles.statNumber}>{userStats.totalTimeSpent}m</Text>
                 <Text style={styles.statLabel}>Time Spent</Text>
-				</View>
+              </View>
               <View style={styles.statCard}>
                 <Award size={20} color="#EF4444" />
                 <Text style={styles.statNumber}>{userStats.totalSessions}</Text>
                 <Text style={styles.statLabel}>Sessions</Text>
               </View>
             </View>
-          </ReanimatedView.View>
+          </View>
         )}
 
         {/* Search */}
-        <ReanimatedView.View entering={FadeInDown.delay(300).duration(600)} style={styles.searchContainer}>
+        <View style={styles.searchContainer}>
           <View style={styles.searchInputContainer}>
             <Search size={20} color={isDark ? '#9CA3AF' : '#6B7280'} />
             <TextInput
@@ -364,10 +342,10 @@ export default function AdhkarScreen() {
               onChangeText={setSearchQuery}
             />
           </View>
-        </ReanimatedView.View>
+        </View>
 
         {/* Categories */}
-        <ReanimatedView.View entering={FadeInDown.delay(500).duration(600)}>
+        <View>
           <ScrollView
             horizontal
             showsHorizontalScrollIndicator={false}
@@ -375,10 +353,7 @@ export default function AdhkarScreen() {
             contentContainerStyle={styles.categoriesContent}
           >
             {categories.map((category, index) => (
-              <ReanimatedView.View
-                key={category.id}
-                entering={SlideInRight.delay(600 + index * 100).duration(600)}
-              >
+              <View key={category.id}>
                 <TouchableOpacity
                   style={[
                     styles.categoryCard,
@@ -387,35 +362,43 @@ export default function AdhkarScreen() {
                   onPress={() => setSelectedCategory(category.id)}
                   activeOpacity={0.85}
                 >
-                  <View style={[
-                    styles.categoryIconWrapper,
-                    { backgroundColor: selectedCategory === category.id ? category.gradient[0] : isDark ? '#1F2937' : '#F3F4F6' }
-                  ]}>
+                  <View
+                    style={[
+                      styles.categoryIconWrapper,
+                      {
+                        backgroundColor:
+                          selectedCategory === category.id
+                            ? category.gradient[0]
+                            : isDark
+                            ? '#1F2937'
+                            : '#F3F4F6',
+                      },
+                    ]}
+                  >
                     <category.icon
                       size={22}
                       color={selectedCategory === category.id ? '#FFFFFF' : category.gradient[0]}
                       strokeWidth={2}
                     />
                   </View>
-                  <Text style={[
-                    styles.categoryName,
-                    selectedCategory === category.id && styles.selectedCategoryText,
-                  ]}>
+                  <Text
+                    style={[
+                      styles.categoryName,
+                      selectedCategory === category.id && styles.selectedCategoryText,
+                    ]}
+                  >
                     {category.name}
                   </Text>
                 </TouchableOpacity>
-              </ReanimatedView.View>
+              </View>
             ))}
           </ScrollView>
-        </ReanimatedView.View>
+        </View>
 
         {/* Adhkar List */}
         <View style={styles.adhkarList}>
           {filteredAdhkar.map((dhikr, index) => (
-            <ReanimatedView.View
-              key={dhikr.id}
-              entering={FadeInDown.delay(800 + index * 100).duration(600)}
-            >
+            <View key={dhikr.id}>
               <View style={styles.dhikrCard}>
                 {/* Header */}
                 <View style={styles.dhikrHeader}>
@@ -424,10 +407,7 @@ export default function AdhkarScreen() {
                   </Text>
                   <View style={styles.dhikrActions}>
                     {user && (
-                      <TouchableOpacity
-                        onPress={() => startDhikrCounter(dhikr)}
-                        style={styles.actionButton}
-                      >
+                      <TouchableOpacity onPress={() => startDhikrCounter(dhikr)} style={styles.actionButton}>
                         <Play size={18} color="#059669" />
                       </TouchableOpacity>
                     )}
@@ -437,7 +417,7 @@ export default function AdhkarScreen() {
                     >
                       <Heart
                         size={18}
-                        color={favorites.includes(dhikr.id) ? '#EF4444' : (isDark ? '#6B7280' : '#9CA3AF')}
+                        color={favorites.includes(dhikr.id) ? '#EF4444' : isDark ? '#6B7280' : '#9CA3AF'}
                         fill={favorites.includes(dhikr.id) ? '#EF4444' : 'transparent'}
                       />
                     </TouchableOpacity>
@@ -461,7 +441,7 @@ export default function AdhkarScreen() {
                   </View>
                 )}
               </View>
-            </ReanimatedView.View>
+            </View>
           ))}
         </View>
       </ScrollView>
@@ -497,6 +477,7 @@ function createStyles(isDark: boolean) {
     loadingText: {
       fontSize: 16,
       fontWeight: '600',
+      color: isDark ? '#F9FAFB' : '#111827',
     },
     scrollView: {
       flex: 1,
@@ -688,10 +669,15 @@ function createStyles(isDark: boolean) {
       color: isDark ? '#94A3B8' : '#6B7280',
       fontStyle: 'italic',
     },
-    // Counter Modal Styles
+  });
+}
+
+function createCounterStyles(isDark: boolean) {
+  return StyleSheet.create({
     counterContainer: {
       flex: 1,
       padding: 20,
+      backgroundColor: isDark ? '#0F172A' : '#FFFFFF',
     },
     counterHeader: {
       flexDirection: 'row',
@@ -705,10 +691,12 @@ function createStyles(isDark: boolean) {
     closeText: {
       fontSize: 16,
       fontWeight: '600',
+      color: isDark ? '#F9FAFB' : '#111827',
     },
     counterTitle: {
       fontSize: 20,
       fontWeight: '800',
+      color: isDark ? '#F9FAFB' : '#111827',
     },
     resetButton: {
       padding: 8,
@@ -723,17 +711,20 @@ function createStyles(isDark: boolean) {
       textAlign: 'center',
       lineHeight: 48,
       marginBottom: 20,
+      color: isDark ? '#F9FAFB' : '#111827',
     },
     counterTransliteration: {
       fontSize: 18,
       fontStyle: 'italic',
       textAlign: 'center',
       marginBottom: 16,
+      color: isDark ? '#CBD5E1' : '#4B5563',
     },
     counterTranslation: {
       fontSize: 16,
       textAlign: 'center',
       lineHeight: 24,
+      color: isDark ? '#E2E8F0' : '#374151',
     },
     counterActions: {
       alignItems: 'center',
@@ -745,6 +736,7 @@ function createStyles(isDark: boolean) {
       paddingVertical: 16,
       borderRadius: 50,
       gap: 12,
+      backgroundColor: '#059669',
     },
     startButtonText: {
       color: '#FFFFFF',
@@ -757,6 +749,7 @@ function createStyles(isDark: boolean) {
       borderRadius: 100,
       justifyContent: 'center',
       alignItems: 'center',
+      backgroundColor: '#059669',
       shadowColor: '#000',
       shadowOpacity: 0.2,
       shadowRadius: 10,

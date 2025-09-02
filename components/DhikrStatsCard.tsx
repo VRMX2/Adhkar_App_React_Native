@@ -1,3 +1,4 @@
+// components/DhikrStatsCard.tsx
 import React from 'react';
 import { View, Text, StyleSheet } from 'react-native';
 import { TrendingUp, Target, Clock, Award, Zap, Calendar } from 'lucide-react-native';
@@ -203,5 +204,5 @@ function createStatsStyles(isDark: boolean) {
       height: '100%',
       borderRadius: 4,
     },
-  });
+	});
 }

@@ -1,3 +1,4 @@
+// components/OfflineModeIndicator.tsx
 import React, { useState, useEffect } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
 import { WifiOff, Wifi } from 'lucide-react-native';
@@ -72,5 +73,5 @@ function createOfflineStyles(isDark: boolean) {
       fontSize: 12,
       color: isDark ? '#9CA3AF' : '#6B7280',
     },
-  });
+	});
 }

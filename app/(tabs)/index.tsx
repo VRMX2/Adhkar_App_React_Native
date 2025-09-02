@@ -9,7 +9,8 @@ import {
   StatusBar,
   Dimensions,
   Platform,
-  ImageBackground,
+  Alert,
+  ActivityIndicator,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import Animated, { 
@@ -19,11 +20,8 @@ import Animated, {
   useSharedValue,
   useAnimatedStyle,
   withTiming,
-  withSequence,
-  withDelay,
   interpolate,
   Extrapolate,
-  withSpring
 } from 'react-native-reanimated';
 import { 
   Clock, 
@@ -35,7 +33,6 @@ import {
   Star, 
   Sunrise,
   ChevronRight,
-  Menu,
   Bell,
   Settings,
   Moon,
@@ -44,39 +41,79 @@ import {
   Target,
   TrendingUp,
   Award,
-  Zap
+  RefreshCw,
+  AlertCircle,
 } from 'lucide-react-native';
 import { useRouter } from 'expo-router';
-import { prayerService } from '@/services/prayerService';
-import { PrayerTimes } from '@/types/prayer';
 import { LinearGradient } from 'expo-linear-gradient';
-import { BlurView } from 'expo-blur';
+import { useDashboard } from '@/hooks/useDashboard';
+import { useAuth } from '@/hooks/useAuth';
 
 const { width, height } = Dimensions.get('window');
+
+// Define types for better type safety
+interface QuickAction {
+  title: string;
+  subtitle: string;
+  icon: React.ComponentType<any>;
+  gradient: string[];
+  onPress: () => void;
+}
+
+interface StatData {
+  icon: React.ComponentType<any>;
+  value: string;
+  label: string;
+  progress: number;
+  color: string;
+  trend: string;
+  isPositive: boolean;
+}
 
 export default function Dashboard() {
   const colorScheme = useColorScheme();
   const router = useRouter();
-  const [prayerTimes, setPrayerTimes] = useState<PrayerTimes | null>(null);
-  const [nextPrayer, setNextPrayer] = useState<string>('');
-  const [timeUntilNext, setTimeUntilNext] = useState<string>('');
-  const [currentTime, setCurrentTime] = useState(new Date());
+  const { user, isAuthenticated, isLoading: authLoading, error: authError } = useAuth();
   const [isDarkMode, setIsDarkMode] = useState(colorScheme === 'dark');
+  const [currentTime, setCurrentTime] = useState(new Date());
+  const [isRefreshing, setIsRefreshing] = useState(false);
+
+  const {
+    userStats,
+    prayerTimes,
+    nextPrayer,
+    timeUntilNext,
+    location,
+    isLoading: dashboardLoading,
+    error: dashboardError,
+    markPrayerComplete,
+    updateDhikrCount,
+    updateQuranTime,
+    updateDuaCount,
+    refreshData,
+  } = useDashboard();
 
   const styles = createStyles(isDarkMode);
-
   const headerScrollOffset = useSharedValue(0);
-  const cardScale = useSharedValue(1);
+  const isLoading = authLoading || dashboardLoading;
+  const error = authError || dashboardError;
+
+  // Debug logging
+  useEffect(() => {
+    console.log('Dashboard render state:', {
+      authLoading,
+      dashboardLoading,
+      isLoading,
+      isAuthenticated,
+      hasUser: !!user,
+      userId: user?.uid,
+      error: error
+    });
+  }, [authLoading, dashboardLoading, isLoading, isAuthenticated, user, error]);
 
   useEffect(() => {
-    loadPrayerTimes();
-    const interval = setInterval(updateNextPrayer, 60000);
     const timeInterval = setInterval(() => setCurrentTime(new Date()), 1000);
-    
-    return () => {
-      clearInterval(interval);
-      clearInterval(timeInterval);
-    };
+    return () => clearInterval(timeInterval);
   }, []);
 
   const headerAnimatedStyle = useAnimatedStyle(() => {
@@ -115,64 +152,50 @@ export default function Dashboard() {
     };
   });
 
-  const loadPrayerTimes = async () => {
-    try {
-      const times = await prayerService.getTodaysPrayerTimes();
-      setPrayerTimes(times);
-      updateNextPrayer();
-    } catch (error) {
-      console.error('Error loading prayer times:', error);
-    }
+  const handlePrayerPress = (prayerName: string) => {
+    Alert.alert(
+      `Mark ${prayerName} Complete`,
+      `Did you complete the ${prayerName} prayer?`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Yes, Complete',
+          onPress: async () => {
+            try {
+              await markPrayerComplete(prayerName);
+              Alert.alert('Success', `${prayerName} prayer marked as complete!`);
+            } catch (error) {
+              console.error('Prayer completion error:', error);
+              Alert.alert('Error', 'Failed to mark prayer as complete');
+            }
+          }
+        }
+      ]
+    );
   };
 
-  const updateNextPrayer = () => {
-    if (!prayerTimes) return;
-    
-    const now = new Date();
-    const prayers = [
-      { name: 'Fajr', time: prayerTimes.fajr },
-      { name: 'Dhuhr', time: prayerTimes.dhuhr },
-      { name: 'Asr', time: prayerTimes.asr },
-      { name: 'Maghrib', time: prayerTimes.maghrib },
-      { name: 'Isha', time: prayerTimes.isha },
-    ];
-
-    for (const prayer of prayers) {
-      const [hours, minutes] = prayer.time.split(':').map(Number);
-      const prayerTime = new Date();
-      prayerTime.setHours(hours, minutes, 0, 0);
-
-      if (prayerTime > now) {
-        setNextPrayer(prayer.name);
-        const diffMs = prayerTime.getTime() - now.getTime();
-        const diffMins = Math.floor(diffMs / 60000);
-        const diffHours = Math.floor(diffMins / 60);
-        const remainingMins = diffMins % 60;
-        
-        if (diffHours > 0) {
-          setTimeUntilNext(`${diffHours}h ${remainingMins}m`);
-        } else {
-          setTimeUntilNext(`${remainingMins}m`);
-        }
-        return;
-      }
+  const handleRefresh = async () => {
+    setIsRefreshing(true);
+    try {
+      await refreshData();
+    } catch (error) {
+      console.error('Refresh error:', error);
+      Alert.alert('Error', 'Failed to refresh data. Please check your connection.');
+    } finally {
+      setIsRefreshing(false);
     }
-    
-    setNextPrayer('Fajr');
-    setTimeUntilNext('Tomorrow');
   };
 
   const toggleDarkMode = () => {
     setIsDarkMode(!isDarkMode);
   };
 
-  const quickActions = [
+  const quickActions: QuickAction[] = [
     {
       title: 'Prayer Times',
-      subtitle: `Next: ${nextPrayer}`,
+      subtitle: nextPrayer ? `Next: ${nextPrayer}` : 'Loading...',
       icon: Clock,
       gradient: ['#00D4AA', '#00B894'],
-      shadowColor: '#00D4AA',
       onPress: () => router.push('/prayer'),
     },
     {
@@ -180,7 +203,6 @@ export default function Dashboard() {
       subtitle: 'Daily remembrance',
       icon: Sunrise,
       gradient: ['#FDCB6E', '#E17055'],
-      shadowColor: '#FDCB6E',
       onPress: () => router.push('/adhkar'),
     },
     {
@@ -188,7 +210,6 @@ export default function Dashboard() {
       subtitle: 'Digital counter',
       icon: Circle,
       gradient: ['#A29BFE', '#6C5CE7'],
-      shadowColor: '#A29BFE',
       onPress: () => router.push('/tasbih'),
     },
     {
@@ -196,7 +217,6 @@ export default function Dashboard() {
       subtitle: 'Read and listen',
       icon: BookOpen,
       gradient: ['#74B9FF', '#0984E3'],
-      shadowColor: '#74B9FF',
       onPress: () => router.push('/quran'),
     },
     {
@@ -204,7 +224,6 @@ export default function Dashboard() {
       subtitle: 'Find direction',
       icon: Compass,
       gradient: ['#FD79A8', '#E84393'],
-      shadowColor: '#FD79A8',
       onPress: () => router.push('/qibla'),
     },
     {
@@ -212,51 +231,54 @@ export default function Dashboard() {
       subtitle: 'Track progress',
       icon: Target,
       gradient: ['#55A3FF', '#1E40AF'],
-      shadowColor: '#55A3FF',
       onPress: () => router.push('/goals'),
     },
   ];
 
-  const stats = [
-    { 
-      icon: Clock, 
-      value: '5', 
-      label: 'Prayers Today', 
-      progress: 100, 
-      color: '#00D4AA',
-      trend: '+2%',
-      isPositive: true 
-    },
-    { 
-      icon: Circle, 
-      value: '247', 
-      label: 'Tasbih Count', 
-      progress: 75, 
-      color: '#A29BFE',
-      trend: '+15%',
-      isPositive: true 
-    },
-    { 
-      icon: BookOpen, 
-      value: '12', 
-      label: 'Duas Read', 
-      progress: 60, 
-      color: '#FDCB6E',
-      trend: '+8%',
-      isPositive: true 
-    },
-    { 
-      icon: Award, 
-      value: '42', 
-      label: 'Streak Days', 
-      progress: 90, 
-      color: '#FD79A8',
-      trend: '+3',
-      isPositive: true 
-    },
-  ];
+  const getStatsData = (): StatData[] => {
+    if (!userStats) return [];
 
-  const formatTime = (date) => {
+    return [
+      { 
+        icon: Clock, 
+        value: userStats.prayersCompletedToday.toString(), 
+        label: 'Prayers Today', 
+        progress: (userStats.prayersCompletedToday / 5) * 100, 
+        color: '#00D4AA',
+        trend: '+' + Math.max(0, userStats.prayersCompletedToday - 3).toString(),
+        isPositive: true 
+      },
+      { 
+        icon: Circle, 
+        value: userStats.dhikrCountToday.toString(), 
+        label: 'Dhikr Count', 
+        progress: Math.min(100, (userStats.dhikrCountToday / 100) * 100), 
+        color: '#A29BFE',
+        trend: '+' + Math.floor((userStats.dhikrCountToday / (userStats.dhikrCount || 1)) * 100) + '%',
+        isPositive: true 
+      },
+      { 
+        icon: BookOpen, 
+        value: userStats.duasToday.toString(), 
+        label: 'Duas Read', 
+        progress: Math.min(100, (userStats.duasToday / 10) * 100), 
+        color: '#FDCB6E',
+        trend: '+' + Math.max(0, userStats.duasToday - 5).toString(),
+        isPositive: true 
+      },
+      { 
+        icon: Award, 
+        value: userStats.streakDays.toString(), 
+        label: 'Streak Days', 
+        progress: Math.min(100, (userStats.streakDays / 30) * 100), 
+        color: '#FD79A8',
+        trend: '+' + Math.max(0, userStats.streakDays - 30).toString(),
+        isPositive: true 
+      },
+    ];
+  };
+
+  const formatTime = (date: Date) => {
     return date.toLocaleTimeString('en-US', { 
       hour: '2-digit', 
       minute: '2-digit',
@@ -264,7 +286,7 @@ export default function Dashboard() {
     });
   };
 
-  const formatDate = (date) => {
+  const formatDate = (date: Date) => {
     return date.toLocaleDateString('en-US', {
       weekday: 'long',
       year: 'numeric',
@@ -273,10 +295,59 @@ export default function Dashboard() {
     });
   };
 
-  const getHijriDate = () => {
-    // This would typically come from an Islamic calendar API
-    return "15 Sha'ban 1445 AH";
+  const getLocationText = () => {
+    if (!location) return 'Getting location...';
+    return 'Bab Ezzouar, Algiers';
   };
+
+  const getCurrentPrayerTime = () => {
+    if (!prayerTimes || !nextPrayer) return '--:--';
+    const prayerKey = nextPrayer.toLowerCase() as keyof typeof prayerTimes;
+    return prayerTimes[prayerKey] || '--:--';
+  };
+
+  // Show loading state first (before authentication check)
+  if (isLoading) {
+    return (
+      <SafeAreaView style={[styles.container, styles.centerContent]}>
+        <ActivityIndicator size="large" color={isDarkMode ? '#00D4AA' : '#0984E3'} />
+        <Text style={[styles.loadingText, { color: isDarkMode ? '#F1F5F9' : '#0F172A' }]}>
+          Loading your dashboard...
+        </Text>
+        <Text style={[styles.loadingSubtext, { color: isDarkMode ? '#64748B' : '#94A3B8' }]}>
+          This may take a few moments
+        </Text>
+      </SafeAreaView>
+    );
+  }
+
+  // Show authentication error if user is not authenticated (only after loading is complete)
+  if (!isAuthenticated || !user) {
+    return (
+      <SafeAreaView style={[styles.container, styles.centerContent]}>
+        <View style={styles.errorContainer}>
+          <AlertCircle size={64} color={isDarkMode ? '#EF4444' : '#DC2626'} />
+          <Text style={[styles.errorTitle, { color: isDarkMode ? '#F1F5F9' : '#0F172A' }]}>
+            Authentication Required
+          </Text>
+          <Text style={[styles.errorText, { color: isDarkMode ? '#94A3B8' : '#64748B' }]}>
+            Please sign in to view your dashboard
+          </Text>
+          {error && (
+            <Text style={[styles.errorDetail, { color: isDarkMode ? '#EF4444' : '#DC2626' }]}>
+              {error}
+            </Text>
+          )}
+          <TouchableOpacity 
+            style={styles.errorButton}
+            onPress={() => router.push('/auth/signin')}
+          >
+            <Text style={styles.errorButtonText}>Sign In</Text>
+          </TouchableOpacity>
+        </View>
+      </SafeAreaView>
+    );
+  }
 
   return (
     <SafeAreaView style={styles.container} edges={['top']}>
@@ -295,35 +366,31 @@ export default function Dashboard() {
           style={StyleSheet.absoluteFill}
         />
         
-        {/* Floating Particles Background */}
-        <View style={styles.particlesContainer}>
-          {[...Array(6)].map((_, i) => (
-            <Animated.View
-              key={i}
-              style={[
-                styles.particle,
-                { 
-                  left: `${Math.random() * 100}%`,
-                  top: `${Math.random() * 100}%`,
-                  opacity: isDarkMode ? 0.1 : 0.05,
-                }
-              ]}
-              entering={FadeIn.delay(i * 200).duration(2000)}
-            />
-          ))}
-        </View>
-        
         <View style={styles.headerContent}>
           <View style={styles.headerTop}>
             <View style={styles.headerLeft}>
               <Text style={styles.greeting}>السلام عليكم</Text>
               <Animated.Text style={[styles.userName, titleAnimatedStyle]}>
-                Abdullah Rahman
+                {user?.displayName || user?.email?.split('@')[0] || 'Brother'}
               </Animated.Text>
               <Text style={styles.subtitle}>May Allah bless your day</Text>
             </View>
             
             <View style={styles.headerIcons}>
+              <TouchableOpacity 
+                style={styles.iconButton}
+                onPress={handleRefresh}
+                disabled={isRefreshing}
+              >
+                <Animated.View
+                  style={[
+                    { transform: [{ rotate: isRefreshing ? '360deg' : '0deg' }] }
+                  ]}
+                >
+                  <RefreshCw size={20} color={isDarkMode ? '#F1F5F9' : '#475569'} />
+                </Animated.View>
+              </TouchableOpacity>
+              
               <TouchableOpacity 
                 style={styles.iconButton}
                 onPress={toggleDarkMode}
@@ -339,10 +406,6 @@ export default function Dashboard() {
                 <Bell size={20} color={isDarkMode ? '#F1F5F9' : '#475569'} />
                 <View style={styles.notificationDot} />
               </TouchableOpacity>
-              
-              <TouchableOpacity style={styles.iconButton}>
-                <Settings size={20} color={isDarkMode ? '#F1F5F9' : '#475569'} />
-              </TouchableOpacity>
             </View>
           </View>
           
@@ -353,15 +416,19 @@ export default function Dashboard() {
                 <Calendar size={16} color={isDarkMode ? '#94A3B8' : '#64748B'} />
                 <Text style={styles.gregorianDate}>{formatDate(new Date())}</Text>
               </View>
-              <Text style={styles.hijriDate}>{getHijriDate()}</Text>
+              <Text style={styles.hijriDate}>{prayerTimes?.hijriDate || 'Loading...'}</Text>
             </View>
             
             <View style={styles.locationSection}>
               <View style={styles.locationRow}>
                 <MapPin size={16} color={isDarkMode ? '#94A3B8' : '#64748B'} />
-                <Text style={styles.location}>New York, NY</Text>
+                <Text style={styles.location}>{getLocationText()}</Text>
               </View>
-              <Text style={styles.coordinates}>40.7128° N, 74.0060° W</Text>
+              {location && (
+                <Text style={styles.coordinates}>
+                  {location.coords.latitude.toFixed(4)}°, {location.coords.longitude.toFixed(4)}°
+                </Text>
+              )}
             </View>
           </View>
         </View>
@@ -381,52 +448,36 @@ export default function Dashboard() {
           entering={FadeInDown.duration(800).springify()} 
           style={styles.heroPrayerCard}
         >
-          <LinearGradient
-            colors={['#00D4AA', '#00B894', '#00A085']}
-            style={styles.heroPrayerGradient}
-            start={{ x: 0, y: 0 }}
-            end={{ x: 1, y: 1 }}
+          <TouchableOpacity
+            onPress={() => nextPrayer && handlePrayerPress(nextPrayer)}
+            activeOpacity={0.9}
           >
-            {/* Geometric Pattern Overlay */}
-            <View style={styles.patternOverlay}>
-              <View style={[styles.geometricShape, styles.shape1]} />
-              <View style={[styles.geometricShape, styles.shape2]} />
-              <View style={[styles.geometricShape, styles.shape3]} />
-            </View>
-            
-            <View style={styles.heroPrayerContent}>
-              <View style={styles.heroPrayerLeft}>
-                <View style={styles.prayerBadge}>
-                  <Text style={styles.prayerBadgeText}>Next Prayer</Text>
-                </View>
-                <Text style={styles.heroPrayerName}>{nextPrayer}</Text>
-                <Text style={styles.heroPrayerTime}>{timeUntilNext}</Text>
-                
-                <View style={styles.prayerProgress}>
-                  <View style={styles.progressDots}>
-                    {['Fajr', 'Dhuhr', 'Asr', 'Maghrib', 'Isha'].map((prayer, index) => (
-                      <View 
-                        key={prayer}
-                        style={[
-                          styles.progressDot,
-                          { opacity: prayer === nextPrayer ? 1 : 0.3 }
-                        ]} 
-                      />
-                    ))}
+            <LinearGradient
+              colors={['#00D4AA', '#00B894', '#00A085']}
+              style={styles.heroPrayerGradient}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 1 }}
+            >
+              <View style={styles.heroPrayerContent}>
+                <View style={styles.heroPrayerLeft}>
+                  <View style={styles.prayerBadge}>
+                    <Text style={styles.prayerBadgeText}>Next Prayer</Text>
                   </View>
+                  <Text style={styles.heroPrayerName}>{nextPrayer || 'Loading...'}</Text>
+                  <Text style={styles.heroPrayerTime}>{timeUntilNext || 'Calculating...'}</Text>
+                </View>
+                
+                <View style={styles.heroPrayerRight}>
+                  <View style={styles.heroPrayerIconContainer}>
+                    <Clock size={32} color="#FFFFFF" strokeWidth={2} />
+                  </View>
+                  <Text style={styles.currentPrayerTime}>
+                    {getCurrentPrayerTime()}
+                  </Text>
                 </View>
               </View>
-              
-              <View style={styles.heroPrayerRight}>
-                <View style={styles.heroPrayerIconContainer}>
-                  <Clock size={32} color="#FFFFFF" strokeWidth={2} />
-                </View>
-                <Text style={styles.currentPrayerTime}>
-                  {prayerTimes?.[nextPrayer.toLowerCase()] || '--:--'}
-                </Text>
-              </View>
-            </View>
-          </LinearGradient>
+            </LinearGradient>
+          </TouchableOpacity>
         </Animated.View>
 
         {/* Quick Actions Grid */}
@@ -436,10 +487,6 @@ export default function Dashboard() {
               <Text style={styles.sectionTitle}>Quick Access</Text>
               <Text style={styles.sectionSubtitle}>Navigate to your daily worship</Text>
             </View>
-            <TouchableOpacity style={styles.viewAllButton}>
-              <Text style={styles.viewAllText}>View All</Text>
-              <ChevronRight size={18} color={isDarkMode ? '#94A3B8' : '#64748B'} />
-            </TouchableOpacity>
           </View>
           
           <ScrollView 
@@ -464,11 +511,6 @@ export default function Dashboard() {
                     start={{ x: 0, y: 0 }}
                     end={{ x: 1, y: 1 }}
                   >
-                    <View style={styles.actionCardPattern}>
-                      <View style={styles.patternCircle1} />
-                      <View style={styles.patternCircle2} />
-                    </View>
-                    
                     <View style={styles.modernActionContent}>
                       <View style={styles.modernActionIcon}>
                         <action.icon size={24} color="#FFFFFF" strokeWidth={2.5} />
@@ -504,7 +546,7 @@ export default function Dashboard() {
           </View>
           
           <View style={styles.statsGrid}>
-            {stats.map((stat, index) => (
+            {getStatsData().map((stat, index) => (
               <Animated.View
                 key={stat.label}
                 entering={FadeInDown.delay(200 + index * 150).duration(700).springify()}
@@ -546,14 +588,14 @@ export default function Dashboard() {
                         style={[
                           styles.modernProgressFill, 
                           { 
-                            width: `${stat.progress}%`,
+                            width: `${Math.min(100, stat.progress)}%`,
                             backgroundColor: stat.color
                           }
                         ]} 
                         entering={FadeIn.delay(500 + index * 100).duration(1000)}
                       />
                     </View>
-                    <Text style={styles.progressPercentage}>{stat.progress}%</Text>
+                    <Text style={styles.progressPercentage}>{Math.round(stat.progress)}%</Text>
                   </View>
                 </LinearGradient>
               </Animated.View>
@@ -561,40 +603,24 @@ export default function Dashboard() {
           </View>
         </View>
 
-        {/* Islamic Quote Card */}
-        <Animated.View 
-          entering={FadeInDown.delay(1000).duration(800).springify()}
-          style={styles.modernQuoteCard}
-        >
-          <LinearGradient
-            colors={['#667EEA', '#764BA2']}
-            style={styles.modernQuoteGradient}
-            start={{ x: 0, y: 0 }}
-            end={{ x: 1, y: 1 }}
+        {/* Error Display */}
+        {error && (
+          <Animated.View 
+            entering={FadeInDown.duration(500)}
+            style={styles.errorContainer}
           >
-            <View style={styles.quotePattern}>
-              <View style={styles.quoteShape1} />
-              <View style={styles.quoteShape2} />
-            </View>
-            
-            <View style={styles.modernQuoteContent}>
-              <View style={styles.quoteIconContainer}>
-                <Text style={styles.arabicQuote}>﴿</Text>
-              </View>
-              
-              <Text style={styles.modernQuoteText}>
-                "And whoever relies upon Allah - then He is sufficient for him. 
-                Indeed, Allah will accomplish His purpose."
-              </Text>
-              
-              <View style={styles.quoteSourceContainer}>
-                <View style={styles.quoteLine} />
-                <Text style={styles.modernQuoteSource}>Quran 65:3</Text>
-                <View style={styles.quoteLine} />
-              </View>
-            </View>
-          </LinearGradient>
-        </Animated.View>
+            <AlertCircle size={24} color="#EF4444" />
+            <Text style={styles.errorText}>
+              {error}
+            </Text>
+            <TouchableOpacity 
+              style={styles.retryButton}
+              onPress={handleRefresh}
+            >
+              <Text style={styles.retryButtonText}>Retry</Text>
+            </TouchableOpacity>
+          </Animated.View>
+        )}
 
         {/* Bottom Spacing */}
         <View style={styles.bottomSpacing} />
@@ -603,11 +629,53 @@ export default function Dashboard() {
   );
 }
 
+// Styles function moved to the correct position
 function createStyles(isDark: boolean) {
   return StyleSheet.create({
     container: {
       flex: 1,
       backgroundColor: isDark ? '#0F172A' : '#F8FAFC',
+    },
+    centerContent: {
+      justifyContent: 'center',
+      alignItems: 'center',
+      padding: 24,
+    },
+    loadingText: {
+      fontSize: 16,
+      fontFamily: 'PlusJakartaSans-Medium',
+      marginTop: 16,
+    },
+    loadingSubtext: {
+      fontSize: 14,
+      fontFamily: 'PlusJakartaSans-Regular',
+      marginTop: 8,
+      textAlign: 'center',
+    },
+    errorTitle: {
+      fontSize: 24,
+      fontFamily: 'PlusJakartaSans-Bold',
+      marginTop: 16,
+      marginBottom: 8,
+      textAlign: 'center',
+    },
+    errorDetail: {
+      fontSize: 14,
+      fontFamily: 'PlusJakartaSans-Regular',
+      marginTop: 8,
+      textAlign: 'center',
+    },
+    errorButton: {
+      backgroundColor: '#0984E3',
+      paddingHorizontal: 24,
+      paddingVertical: 12,
+      borderRadius: 12,
+      marginTop: 16,
+    },
+    errorButtonText: {
+      color: '#FFFFFF',
+      fontSize: 16,
+      fontFamily: 'PlusJakartaSans-SemiBold',
     },
     header: {
       position: 'absolute',
@@ -617,20 +685,6 @@ function createStyles(isDark: boolean) {
       zIndex: 10,
       paddingHorizontal: 24,
       overflow: 'hidden',
-    },
-    particlesContainer: {
-      position: 'absolute',
-      top: 0,
-      left: 0,
-      right: 0,
-      bottom: 0,
-    },
-    particle: {
-      position: 'absolute',
-      width: 8,
-      height: 8,
-      borderRadius: 4,
-      backgroundColor: isDark ? '#64748B' : '#CBD5E1',
     },
     headerContent: {
       flex: 1,
@@ -688,7 +742,7 @@ function createStyles(isDark: boolean) {
       height: 8,
       borderRadius: 4,
       backgroundColor: '#EF4444',
-	},
+    },
     dateLocationSection: {
       flexDirection: 'row',
       justifyContent: 'space-between',
@@ -765,36 +819,6 @@ function createStyles(isDark: boolean) {
       position: 'relative',
       overflow: 'hidden',
     },
-    patternOverlay: {
-      position: 'absolute',
-      top: 0,
-      left: 0,
-      right: 0,
-      bottom: 0,
-    },
-    geometricShape: {
-      position: 'absolute',
-      borderRadius: 50,
-      backgroundColor: 'rgba(255,255,255,0.1)',
-    },
-    shape1: {
-      width: 100,
-      height: 100,
-      top: -20,
-      right: -30,
-    },
-    shape2: {
-      width: 60,
-      height: 60,
-      bottom: 20,
-      left: -10,
-    },
-    shape3: {
-      width: 40,
-      height: 40,
-      top: 60,
-      right: 80,
-    },
     heroPrayerContent: {
       flexDirection: 'row',
       justifyContent: 'space-between',
@@ -831,19 +855,6 @@ function createStyles(isDark: boolean) {
       fontFamily: 'PlusJakartaSans-SemiBold',
       color: 'rgba(255,255,255,0.9)',
       marginBottom: 20,
-    },
-    prayerProgress: {
-      marginTop: 8,
-    },
-    progressDots: {
-      flexDirection: 'row',
-      gap: 8,
-    },
-    progressDot: {
-      width: 8,
-      height: 8,
-      borderRadius: 4,
-      backgroundColor: '#FFFFFF',
     },
     heroPrayerRight: {
       alignItems: 'center',
@@ -922,31 +933,6 @@ function createStyles(isDark: boolean) {
       padding: 20,
       minHeight: 120,
       position: 'relative',
-    },
-    actionCardPattern: {
-      position: 'absolute',
-      top: 0,
-      left: 0,
-      right: 0,
-      bottom: 0,
-    },
-    patternCircle1: {
-      position: 'absolute',
-      width: 60,
-      height: 60,
-      borderRadius: 30,
-      backgroundColor: 'rgba(255,255,255,0.1)',
-      top: -10,
-      right: -10,
-    },
-    patternCircle2: {
-      position: 'absolute',
-      width: 30,
-      height: 30,
-      borderRadius: 15,
-      backgroundColor: 'rgba(255,255,255,0.08)',
-      bottom: 10,
-      left: -5,
     },
     modernActionContent: {
       flexDirection: 'row',
@@ -1067,88 +1053,37 @@ function createStyles(isDark: boolean) {
       fontFamily: 'PlusJakartaSans-SemiBold',
       color: isDark ? '#94A3B8' : '#64748B',
     },
-    modernQuoteCard: {
+    errorContainer: {
       marginHorizontal: 24,
-      borderRadius: 24,
-      shadowColor: '#000',
-      shadowOffset: { width: 0, height: 16 },
-      shadowOpacity: 0.2,
-      shadowRadius: 24,
-      elevation: 12,
-      overflow: 'hidden',
-    },
-    modernQuoteGradient: {
-      borderRadius: 24,
-      padding: 32,
-      position: 'relative',
-      minHeight: 180,
-    },
-    quotePattern: {
-      position: 'absolute',
-      top: 0,
-      left: 0,
-      right: 0,
-      bottom: 0,
-    },
-    quoteShape1: {
-      position: 'absolute',
-      width: 120,
-      height: 120,
-      borderRadius: 60,
-      backgroundColor: 'rgba(255,255,255,0.05)',
-      top: -40,
-      left: -40,
-    },
-    quoteShape2: {
-      position: 'absolute',
-      width: 80,
-      height: 80,
-      borderRadius: 40,
-      backgroundColor: 'rgba(255,255,255,0.08)',
-      bottom: -20,
-      right: -20,
-    },
-    modernQuoteContent: {
+      padding: 20,
+      backgroundColor: isDark ? 'rgba(239, 68, 68, 0.1)' : 'rgba(239, 68, 68, 0.05)',
+      borderRadius: 16,
+      borderWidth: 1,
+      borderColor: 'rgba(239, 68, 68, 0.2)',
       alignItems: 'center',
-      zIndex: 1,
-    },
-    quoteIconContainer: {
-      marginBottom: 20,
-    },
-    arabicQuote: {
-      fontSize: 48,
-      fontFamily: 'PlusJakartaSans-ExtraBold',
-      color: '#FFFFFF',
-      opacity: 0.9,
-    },
-    modernQuoteText: {
-      fontSize: 16,
-      fontFamily: 'PlusJakartaSans-Medium',
-      color: '#FFFFFF',
-      lineHeight: 26,
-      textAlign: 'center',
-      marginBottom: 24,
-      letterSpacing: 0.2,
-    },
-    quoteSourceContainer: {
+		gap: 12,
       flexDirection: 'row',
-      alignItems: 'center',
-      gap: 16,
     },
-    quoteLine: {
-      width: 24,
-      height: 1,
-      backgroundColor: 'rgba(255,255,255,0.6)',
+    errorText: {
+      fontSize: 14,
+      fontFamily: 'PlusJakartaSans-Medium',
+      color: '#EF4444',
+      textAlign: 'center',
+      flex: 1,
     },
-    modernQuoteSource: {
+    retryButton: {
+      paddingHorizontal: 20,
+      paddingVertical: 10,
+      backgroundColor: '#EF4444',
+      borderRadius: 12,
+    },
+    retryButtonText: {
       fontSize: 14,
       fontFamily: 'PlusJakartaSans-SemiBold',
       color: '#FFFFFF',
-      textAlign: 'center',
-      opacity: 0.9,
     },
     bottomSpacing: {
       height: 40,
-	},
-})
+    },
+  });
 }

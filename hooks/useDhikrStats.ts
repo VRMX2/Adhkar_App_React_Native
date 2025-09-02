@@ -1,3 +1,4 @@
+// hooks/useDhikrStats.ts
 import { useState, useEffect } from 'react';
 import { firebaseAdhkarService, UserDhikrStats } from '@/services/adhkarService';
 import { useAuth } from '@/contexts/AuthContext';
@@ -52,5 +53,5 @@ export const useDhikrStats = () => {
     isLoading,
     updateGoals,
     reload: loadStats,
-  };
+	};
 };

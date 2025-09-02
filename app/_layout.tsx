@@ -4,6 +4,7 @@ import { StatusBar } from 'expo-status-bar';
 import * as SplashScreen from 'expo-splash-screen';
 import { useEffect, useState } from 'react';
 import { useFrameworkReady } from '@/hooks/useFrameworkReady';
+import { AuthProvider } from '@/contexts/AuthContext';
 
 // Prevent the splash screen from auto-hiding
 SplashScreen.preventAutoHideAsync();
@@ -54,7 +55,8 @@ export default function RootLayout() {
     return null;
   }
 
-  return (
+	return (
+     <AuthProvider>
     <FontWrapper>
       <Stack screenOptions={{ headerShown: false }}>
         <Stack.Screen name="index" />
@@ -63,6 +65,7 @@ export default function RootLayout() {
         <Stack.Screen name="+not-found" />
       </Stack>
       <StatusBar style="auto" />
-    </FontWrapper>
+	</FontWrapper>
+    </AuthProvider>
   );
 }

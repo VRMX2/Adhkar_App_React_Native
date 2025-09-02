@@ -28,95 +28,38 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
 
   useEffect(() => {
-    // Set up auth state listener
-    const unsubscribe = authService.onAuthStateChanged(async (user) => {
-      setUser(user);
-      setIsAuthenticated(!!user);
-      setIsLoading(false);
-    }
-  };
+    let unsubscribe: (() => void) | undefined;
 
-  const sendPasswordReset = async (email: string): Promise<void> => {
-    try {
-      await authService.sendPasswordResetEmail(email);
-    } catch (error) {
-      console.error('Password reset error:', error);
-      throw error;
-    }
-  };
+    const setupAuthListener = async () => {
+      try {
+        // Set up auth state listener
+        unsubscribe = authService.onAuthStateChanged(async (user) => {
+          setUser(user);
+          setIsAuthenticated(!!user);
+          
+          // Initialize adhkar service for new user
+          if (user) {
+            try {
+              await firebaseAdhkarService.initializeUserAdhkar(user.id);
+              // Sync offline data if any
+              await firebaseAdhkarService.syncOfflineData();
+            } catch (error) {
+              console.error('Error initializing user adhkar:', error);
+            }
+          }
+          
+          setIsLoading(false);
+        });
 
-  const updateProfile = async (updates: Partial<User>): Promise<User> => {
-    try {
-      const updatedUser = await authService.updateUserProfile(updates);
-      setUser(updatedUser);
-      return updatedUser;
-    } catch (error) {
-      console.error('Update profile error:', error);
-      throw error;
-    }
-  };
-
-  const deleteAccount = async (password: string): Promise<void> => {
-    try {
-      await authService.deleteAccount(password);
-      setUser(null);
-      setIsAuthenticated(false);
-      
-      // Set adhkar service to offline mode
-      await firebaseAdhkarService.setOfflineMode(true);
-    } catch (error) {
-      console.error('Delete account error:', error);
-      throw error;
-    }
-  };
-
-  const changePassword = async (currentPassword: string, newPassword: string): Promise<void> => {
-    try {
-      await authService.changePassword(currentPassword, newPassword);
-    } catch (error) {
-      console.error('Change password error:', error);
-      throw error;
-    }
-  };
-
-  const value: AuthContextType = {
-    user,
-    isLoading,
-    isAuthenticated,
-    signIn,
-    signUp,
-    signOut,
-    sendPasswordReset,
-    updateProfile,
-    deleteAccount,
-    changePassword,
-  };
-
-  return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
-};
-
-export const useAuth = (): AuthContextType => {
-  const context = useContext(AuthContext);
-  if (context === undefined) {
-    throw new Error('useAuth must be used within an AuthProvider');
-  }
-  return context;
-};false);
-
-      // Initialize adhkar service for new user
-      if (user) {
-        try {
-          await firebaseAdhkarService.initializeUserAdhkar(user.id);
-          // Sync offline data if any
-          await firebaseAdhkarService.syncOfflineData();
-        } catch (error) {
-          console.error('Error initializing user adhkar:', error);
-        }
+        // Check for existing user on app start
+        await checkCurrentUser();
+      } catch (error) {
+        console.error('Error setting up auth listener:', error);
+        setIsLoading(false);
       }
-    });
+    };
 
-    // Check for existing user on app start
-    checkCurrentUser();
+    setupAuthListener();
 
     return () => {
       if (unsubscribe) {
@@ -138,7 +81,7 @@ export const useAuth = (): AuthContextType => {
         await firebaseAdhkarService.initializeUserAdhkar(currentUser.id);
       }
     } catch (error) {
-		console.error('Error checking current user:', error);
+      console.error('Error checking current user:', error);
       setUser(null);
       setIsAuthenticated(false);
     } finally {
@@ -200,4 +143,73 @@ export const useAuth = (): AuthContextType => {
       console.error('Sign out error:', error);
       throw error;
     } finally {
-		setIsLoading(
+      setIsLoading(false);
+    }
+  };
+
+  const sendPasswordReset = async (email: string): Promise<void> => {
+    try {
+      await authService.sendPasswordResetEmail(email);
+    } catch (error) {
+      console.error('Password reset error:', error);
+      throw error;
+    }
+  };
+
+  const updateProfile = async (updates: Partial<User>): Promise<User> => {
+    try {
+      const updatedUser = await authService.updateUserProfile(updates);
+      setUser(updatedUser);
+      return updatedUser;
+    } catch (error) {
+      console.error('Update profile error:', error);
+      throw error;
+    }
+  };
+
+  const deleteAccount = async (password: string): Promise<void> => {
+    try {
+      await authService.deleteAccount(password);
+      setUser(null);
+      setIsAuthenticated(false);
+      
+      // Set adhkar service to offline mode
+      await firebaseAdhkarService.setOfflineMode(true);
+    } catch (error) {
+      console.error('Delete account error:', error);
+      throw error;
+    }
+  };
+
+  const changePassword = async (currentPassword: string, newPassword: string): Promise<void> => {
+    try {
+      await authService.changePassword(currentPassword, newPassword);
+    } catch (error) {
+      console.error('Change password error:', error);
+      throw error;
+    }
+  };
+
+  const value: AuthContextType = {
+    user,
+    isLoading,
+    isAuthenticated,
+    signIn,
+    signUp,
+    signOut,
+    sendPasswordReset,
+    updateProfile,
+    deleteAccount,
+	changePassword,
+  };
+
+  return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
+};
+
+export const useAuth = (): AuthContextType => {
+  const context = useContext(AuthContext);
+  if (context === undefined) {
+    throw new Error('useAuth must be used within an AuthProvider');
+  }
+  return context;
+};
