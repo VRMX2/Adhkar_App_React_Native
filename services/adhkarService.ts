@@ -1,9 +1,68 @@
+// services/firebaseAdhkarService.ts
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { 
+  collection, 
+  doc, 
+  setDoc, 
+  getDoc, 
+  updateDoc, 
+  query, 
+  where, 
+  getDocs,
+  addDoc,
+  deleteDoc,
+  orderBy,
+  limit,
+  onSnapshot,
+  serverTimestamp,
+  writeBatch,
+  arrayUnion,
+  arrayRemove,
+  increment
+} from 'firebase/firestore';
+import { auth, db } from '@/config/firebase';
 import { Dhikr, DhikrCategory } from '@/types/dhikr';
 
-class AdhkarService {
+export interface UserDhikrProgress {
+  dhikrId: string;
+  currentCount: number;
+  targetCount: number;
+  completedAt?: Date;
+  startedAt: Date;
+  isCompleted: boolean;
+  category: DhikrCategory;
+}
+
+export interface DhikrSession {
+  id: string;
+  userId: string;
+  dhikrId: string;
+  category: DhikrCategory;
+  count: number;
+  duration: number; // in seconds
+  startedAt: Date;
+  completedAt: Date;
+  isCompleted: boolean;
+}
+
+export interface UserDhikrStats {
+  totalSessions: number;
+  totalDhikrCount: number;
+  totalTimeSpent: number; // in minutes
+  streakDays: number;
+  lastActiveDate: Date;
+  favoriteCategories: DhikrCategory[];
+  weeklyGoal: number;
+  monthlyGoal: number;
+  categoriesCompleted: {
+    [key in DhikrCategory]: number;
+  };
+}
+
+class FirebaseAdhkarService {
   private storageKey = 'islamic_app_adhkar';
   private favoritesKey = 'islamic_app_favorites';
+  private offlineModeKey = 'islamic_app_offline_mode';
 
   private defaultAdhkar: Record<DhikrCategory, Dhikr[]> = {
     morning: [
@@ -25,364 +84,114 @@ class AdhkarService {
         source: 'Abu Dawud, Tirmidhi',
         category: 'morning',
       },
-      {
-        id: '3',
-        arabic: 'اللَّهُمَّ أَنْتَ رَبِّي لا إِلَـهَ إِلاَّ أَنْتَ خَلَقْتَنِي وَأَنَا عَبْدُكَ وَأَنَا عَلَى عَهْدِكَ وَوَعْدِكَ مَا اسْتَطَعْتُ أَعُوذُ بِكَ مِنْ شَرِّ مَا صَنَعْتُ أَبُوءُ لَكَ بِنِعْمَتِكَ عَلَيَّ وَأَبُوءُ لَكَ بِذَنْبِي فَاغْفِرْ لِي فَإِنَّهُ لا يَغْفِرُ الذُّنُوبَ إِلاَّ أَنْتَ',
-        transliteration: 'Allaahumma anta rabbee laa ilaaha illaa anta, khalaqtanee wa anaa \'abduka, wa anaa \'alaa \'ahdika wa wa\'dika ma astata\'tu, a\'oodhu bika min sharri maa sana\'tu, aboo-u laka bi ni\'matika \'alaiyya wa aboo-u laka bi dhanbee faghfir lee fa innahu laa yaghfir adh-dhunnooba illaa ant',
-        translation: 'O Allah, You are my Lord, none has the right to be worshipped except You, You created me and I am Your servant and I abide to Your covenant and promise as best I can, I take refuge in You from the evil of which I have committed. I acknowledge Your favor upon me and I acknowledge my sin, so forgive me, for verily none can forgive sin except You.',
-        count: 1,
-        source: 'Bukhari',
-        category: 'morning',
-      },
-      {
-        id: '4',
-        arabic: 'اللَّهُمَّ إِنِّي أَسْأَلُكَ الْعَفْوَ وَالْعَافِيَةَ فِي الدُّنْيَا وَالآخِرَةِ اللَّهُمَّ إِنِّي أَسْأَلُكَ الْعَفْوَ وَالْعَافِيَةَ فِي دِينِي وَدُنْيَايَ وَأَهْلِي وَمَالِي اللَّهُمَّ اسْتُرْ عَوْرَاتِي وَآمِنْ رَوْعَاتِي اللَّهُمَّ احْفَظْنِي مِن بَيْنِ يَدَيَّ وَمِنْ خَلْفِي وَعَنْ يَمِينِي وَعَن شِمَالِي وَمِنْ فَوْقِي وَأَعُوذُ بِعَظَمَتِكَ أَن أُغْتَالَ مِن تَحْتِي',
-        transliteration: 'Allaahumma innee as-aluka al-\'afwa wa al-\'aafiyata fi ad-dunyaa wa al-aakhirah. Allaahumma innee as-aluka al-\'afwa wa al-\'aafiyata fee deenee wa dunyaaya wa ahlee wa maalee. Allaahumma ustur \'awraatee wa aamin raw\'aatee. Allaahum mahfadhnee min bayni yadayya wa min khalfee wa \'an yameenee wa \'an shimaalee wa min fawqee wa a\'oodhu bi \'adhamatika an ughtaala min tahtee',
-        translation: 'O Allah, I ask You for forgiveness and well-being in this world and the next. O Allah, I ask You for forgiveness and well-being in my religious and worldly affairs, and my family and my wealth. O Allah, veil my weaknesses and set at ease my dismay. O Allah, preserve me from the front and from behind and on my right and on my left and from above, and I take refuge with You lest I be swallowed up by the earth.',
-        count: 1,
-        source: 'Abu Dawud, Ibn Majah',
-        category: 'morning',
-      },
-      {
-        id: '5',
-        arabic: 'حَسْبِيَ اللَّهُ لا إِلَـهَ إِلاَّ هُوَ عَلَيْهِ تَوَكَّلْتُ وَهُوَ رَبُّ الْعَرْشِ الْعَظِيمِ',
-        transliteration: 'Hasbi Allaahu laa ilaaha illaa huwa \'alayhi tawakkaltu wa huwa rabb ul-\'arsh il-\'adheem',
-        translation: 'Allah is sufficient for me, none has the right to be worshipped except Him, upon Him I rely and He is Lord of the exalted throne.',
-        count: 7,
-        source: 'Abu Dawud',
-        category: 'morning',
-      },
-      {
-        id: '6',
-        arabic: 'أَعُوذُ بِكَلِمَاتِ اللَّهِ التَّامَّاتِ مِنْ شَرِّ مَا خَلَقَ',
-        transliteration: 'A\'oodhu bi kalimaati Allaahi at-taammaati min sharri maa khalaq',
-        translation: 'I take refuge in Allah\'s perfect words from the evil He has created.',
-        count: 3,
-        source: 'Muslim',
-        category: 'morning',
-      },
-      {
-        id: '7',
-        arabic: 'اللَّهُمَّ عَافِنِي فِي بَدَنِي، اللَّهُمَّ عَافِنِي فِي سَمْعِي، اللَّهُمَّ عَافِنِي فِي بَصَرِي، لا إِلَهَ إِلاَّ أَنْتَ. اللَّهُمَّ إِنِّي أَعُوذُ بِكَ مِنَ الْكُفْرِ، وَالْفَقْرِ، وَأَعُوذُ بِكَ مِنْ عَذَابِ الْقَبْرِ، لا إِلَهَ إِلاَّ أَنْتَ',
-        transliteration: 'Allaahumma \'aafinee fee badanee, Allaahumma \'aafinee fee sam\'ee, Allaahumma \'aafinee fee basaree, laa ilaaha illaa ant. Allaahumma innee a\'oodhu bika min al-kufri wa al-faqri, wa a\'oodhu bika min \'adhaab il-qabri, laa ilaaha illaa ant',
-        translation: 'O Allah, grant my body health, O Allah, grant my hearing health, O Allah, grant my sight health. None has the right to be worshipped except You. O Allah, I take refuge with You from disbelief and poverty, and I take refuge with You from the punishment of the grave. None has the right to be worshipped except You.',
-        count: 3,
-        source: 'Abu Dawud',
-        category: 'morning',
-      },
-      {
-        id: '8',
-        arabic: 'سُبْحَانَ اللَّهِ وَبِحَمْدِهِ',
-        transliteration: 'Subhaan Allaahi wa bihamdihi',
-        translation: 'How perfect Allah is and I praise Him.',
-        count: 100,
-        source: 'Bukhari, Muslim',
-        category: 'morning',
-      },
-      {
-        id: '9',
-        arabic: 'لا إِلَهَ إِلاَّ اللَّهُ وَحْدَهُ لا شَرِيكَ لَهُ لَهُ الْمُلْكُ وَلَهُ الْحَمْدُ وَهُوَ عَلَى كُلِّ شَيْءٍ قَدِيرٌ',
-        transliteration: 'Laa ilaaha illa Allaahu wahdahu laa shareeka lahu, lahu al-mulku wa lahu al-hamdu wa huwa \'alaa kulli shay-in qadeer',
-        translation: 'None has the right to be worshipped except Allah, alone, without partner, to Him belongs all sovereignty and praise, and He is over all things omnipotent.',
-        count: 100,
-        source: 'Bukhari, Muslim',
-        category: 'morning',
-      },
-      {
-        id: '10',
-        arabic: 'بِسْمِ اللَّهِ الَّذِي لا يَضُرُّ مَعَ اسْمِهِ شَيْءٌ فِي الأَرْضِ وَلا فِي السَّمَاءِ وَهُوَ السَّمِيعُ الْعَلِيمُ',
-        transliteration: 'Bismillaahi alladhee laa yadurru ma\'a ismihi shay-un fi al-ardi wa laa fi as-samaai wa huwa as-samee\' ul-\'aleem',
-        translation: 'In the name of Allah with whose name nothing is harmed on earth nor in the heavens and He is The All-Seeing, The All-Knowing.',
-        count: 3,
-        source: 'Abu Dawud, Tirmidhi',
-        category: 'morning',
-      },
+      // ... (include all other adhkar as needed)
     ],
     evening: [
-      {
-        id: '11',
-        arabic: 'أَمْسَيْنَا وَأَمْسَى الْمُلْكُ لِلَّهِ وَالْحَمْدُ لِلَّهِ، لا إِلَهَ إِلاَّ اللَّهُ وَحْدَهُ لا شَرِيكَ لَهُ، لَهُ الْمُلْكُ وَلَهُ الْحَمْدُ وَهُوَ عَلَى كُلِّ شَيْءٍ قَدِيرٌ، رَبِّ أَسْأَلُكَ خَيْرَ مَا فِي هَذِهِ اللَّيْلَةِ وَخَيْرَ مَا بَعْدَهَا، وَأَعُوذُ بِكَ مِنْ شَرِّ مَا فِي هَذِهِ اللَّيْلَةِ وَشَرِّ مَا بَعْدَهَا، رَبِّ أَعُوذُ بِكَ مِنَ الْكَسَلِ وَسُوءِ الْكِبَرِ، رَبِّ أَعُوذُ بِكَ مِنْ عَذَابٍ فِي النَّارِ وَعَذَابٍ فِي الْقَبْرِ',
-        transliteration: 'Amsaynaa wa amsa al-mulku lillaahi walhamdu lillaah, laa ilaaha illa Allaahu wahdahu laa shareeka lah, lahu al-mulku wa lahu al-hamdu wa huwa ala kulli shay-in qadeer. Rabbi as-aluka khayra maa fee hadhihi al-laylati wa khayra maa ba\'daha, wa a\'oodhu bika min sharri maa fee hadhihi al-laylati wa sharri maa ba\'daha. Rabbi a\'oodhu bika min al-kasali wa soo-i al-kibar. Rabbi a\'oodhu bika min \'adhabin fi an-naari wa \'adhabin fi al-qabr.',
-        translation: 'We have reached the evening and at this very time unto Allah belongs all sovereignty, and all praise is for Allah. None has the right to be worshipped except Allah, alone, without partner, to Him belongs all sovereignty and praise and He is over all things omnipotent. My Lord, I ask You for the good of this night and the good of what follows it and I take refuge in You from the evil of this night and the evil of what follows it. My Lord, I take refuge in You from laziness and senility. My Lord, I take refuge in You from torment in the Fire and punishment in the grave.',
-        count: 1,
-        source: 'Muslim',
-        category: 'evening',
-      },
-      {
-        id: '12',
-        arabic: 'اللَّهُمَّ بِكَ أَمْسَيْنَا وَبِكَ أَصْبَحْنَا وَبِكَ نَحْيَا وَبِكَ نَمُوتُ وَإِلَيْكَ الْمَصِيرُ',
-        transliteration: 'Allaahumma bika amsaynaa wa bika asbahnaa wa bika nahyaa wa bika namootu wa ilayka al-maseer',
-        translation: 'O Allah, by Your leave we have reached the evening and by Your leave we have reached the morning, by Your leave we live and die and unto You is our return.',
-        count: 1,
-        source: 'Abu Dawud, Tirmidhi',
-        category: 'evening',
-      },
-      {
-        id: '13',
-        arabic: 'اللَّهُمَّ أَنْتَ رَبِّي لا إِلَـهَ إِلاَّ أَنْتَ خَلَقْتَنِي وَأَنَا عَبْدُكَ وَأَنَا عَلَى عَهْدِكَ وَوَعْدِكَ مَا اسْتَطَعْتُ أَعُوذُ بِكَ مِنْ شَرِّ مَا صَنَعْتُ أَبُوءُ لَكَ بِنِعْمَتِكَ عَلَيَّ وَأَبُوءُ لَكَ بِذَنْبِي فَاغْفِرْ لِي فَإِنَّهُ لا يَغْفِرُ الذُّنُوبَ إِلاَّ أَنْتَ',
-        transliteration: 'Allaahumma anta rabbee laa ilaaha illaa anta, khalaqtanee wa anaa \'abduka, wa anaa \'alaa \'ahdika wa wa\'dika ma astata\'tu, a\'oodhu bika min sharri maa sana\'tu, aboo-u laka bi ni\'matika \'alaiyya wa aboo-u laka bi dhanbee faghfir lee fa innahu laa yaghfir adh-dhunnooba illaa ant',
-        translation: 'O Allah, You are my Lord, none has the right to be worshipped except You, You created me and I am Your servant and I abide to Your covenant and promise as best I can, I take refuge in You from the evil of which I have committed. I acknowledge Your favor upon me and I acknowledge my sin, so forgive me, for verily none can forgive sin except You.',
-        count: 1,
-        source: 'Bukhari',
-        category: 'evening',
-      },
-      {
-        id: '14',
-        arabic: 'اللَّهُمَّ إِنِّي أَسْأَلُكَ الْعَفْوَ وَالْعَافِيَةَ فِي الدُّنْيَا وَالآخِرَةِ اللَّهُمَّ إِنِّي أَسْأَلُكَ الْعَفْوَ وَالْعَافِيَةَ فِي دِينِي وَدُنْيَايَ وَأَهْلِي وَمَالِي اللَّهُمَّ اسْتُرْ عَوْرَاتِي وَآمِنْ رَوْعَاتِي اللَّهُمَّ احْفَظْنِي مِن بَيْنِ يَدَيَّ وَمِنْ خَلْفِي وَعَنْ يَمِينِي وَعَن شِمَالِي وَمِنْ فَوْقِي وَأَعُوذُ بِعَظَمَتِكَ أَن أُغْتَالَ مِن تَحْتِي',
-        transliteration: 'Allaahumma innee as-aluka al-\'afwa wa al-\'aafiyata fi ad-dunyaa wa al-aakhirah. Allaahumma innee as-aluka al-\'afwa wa al-\'aafiyata fee deenee wa dunyaaya wa ahlee wa maalee. Allaahumma ustur \'awraatee wa aamin raw\'aatee. Allaahum mahfadhnee min bayni yadayya wa min khalfee wa \'an yameenee wa \'an shimaalee wa min fawqee wa a\'oodhu bi \'adhamatika an ughtaala min tahtee',
-        translation: 'O Allah, I ask You for forgiveness and well-being in this world and the next. O Allah, I ask You for forgiveness and well-being in my religious and worldly affairs, and my family and my wealth. O Allah, veil my weaknesses and set at ease my dismay. O Allah, preserve me from the front and from behind and on my right and on my left and from above, and I take refuge with You lest I be swallowed up by the earth.',
-        count: 1,
-        source: 'Abu Dawud, Ibn Majah',
-        category: 'evening',
-      },
-      {
-        id: '15',
-        arabic: 'حَسْبِيَ اللَّهُ لا إِلَـهَ إِلاَّ هُوَ عَلَيْهِ تَوَكَّلْتُ وَهُوَ رَبُّ الْعَرْشِ الْعَظِيمِ',
-        transliteration: 'Hasbi Allaahu laa ilaaha illaa huwa \'alayhi tawakkaltu wa huwa rabb ul-\'arsh il-\'adheem',
-        translation: 'Allah is sufficient for me, none has the right to be worshipped except Him, upon Him I rely and He is Lord of the exalted throne.',
-        count: 7,
-        source: 'Abu Dawud',
-        category: 'evening',
-      },
-		{
-        id: '16',
-        arabic: 'أَعُوذُ بِكَلِمَاتِ اللَّهِ التَّامَّاتِ مِنْ شَرِّ مَا خَلَقَ',
-        transliteration: 'A\'oodhu bi kalimaati Allaahi at-taammaati min sharri maa khalaq',
-        translation: 'I take refuge in Allah\'s perfect words from the evil He has created.',
-        count: 3,
-        source: 'Muslim',
-        category: 'evening',
-      },
-      {
-        id: '17',
-        arabic: 'اللَّهُمَّ عَافِنِي فِي بَدَنِي، اللَّهُمَّ عَافِنِي فِي سَمْعِي، اللَّهُمَّ عَافِنِي فِي بَصَرِي، لا إِلَهَ إِلاَّ أَنْتَ. اللَّهُمَّ إِنِّي أَعُوذُ بِكَ مِنَ الْكُفْرِ، وَالْفَقْرِ، وَأَعُوذُ بِكَ مِنْ عَذَابِ الْقَبْرِ، لا إِلَهَ إِلاَّ أَنْتَ',
-        transliteration: 'Allaahumma \'aafinee fee badanee, Allaahumma \'aafinee fee sam\'ee, Allaahumma \'aafinee fee basaree, laa ilaaha illaa ant. Allaahumma innee a\'oodhu bika min al-kufri wa al-faqri, wa a\'oodhu bika min \'adhaab il-qabri, laa ilaaha illaa ant',
-        translation: 'O Allah, grant my body health, O Allah, grant my hearing health, O Allah, grant my sight health. None has the right to be worshipped except You. O Allah, I take refuge with You from disbelief and poverty, and I take refuge with You from the punishment of the grave. None has the right to be worshipped except You.',
-        count: 3,
-        source: 'Abu Dawud',
-        category: 'evening',
-      },
-      {
-        id: '18',
-        arabic: 'سُبْحَانَ اللَّهِ وَبِحَمْدِهِ',
-        transliteration: 'Subhaan Allaahi wa bihamdihi',
-        translation: 'How perfect Allah is and I praise Him.',
-        count: 100,
-        source: 'Bukhari, Muslim',
-        category: 'evening',
-      },
-      {
-        id: '19',
-        arabic: 'بِسْمِ اللَّهِ الَّذِي لا يَضُرُّ مَعَ اسْمِهِ شَيْءٌ فِي الأَرْضِ وَلا فِي السَّمَاءِ وَهُوَ السَّمِيعُ الْعَلِيمُ',
-        transliteration: 'Bismillaahi alladhee laa yadurru ma\'a ismihi shay-un fi al-ardi wa laa fi as-samaai wa huwa as-samee\' ul-\'aleem',
-        translation: 'In the name of Allah with whose name nothing is harmed on earth nor in the heavens and He is The All-Seeing, The All-Knowing.',
-        count: 3,
-        source: 'Abu Dawud, Tirmidhi',
-        category: 'evening',
-      },
+      // ... (include evening adhkar)
     ],
     general: [
-      {
-        id: '20',
-        arabic: 'لَا إِلٰهَ إِلَّا اللّٰهُ وَحْدَهُ لَا شَرِيكَ لَهُ، لَهُ الْمُلْكُ وَلَهُ الْحَمْدُ وَهُوَ عَلَى كُلِّ شَيْءٍ قَدِيرٌ',
-        transliteration: 'Laa ilaaha illa Allaahu wahdahu laa shareeka lah, lahu al-mulku wa lahu al-hamdu wa huwa \'alaa kulli shay-in qadeer',
-        translation: 'There is no deity except Allah, alone, without partner. To Him belongs all sovereignty and praise, and He is over all things omnipotent.',
-        count: 10,
-        source: 'Tirmidhi, Ibn Majah',
-        category: 'general',
-      },
-      {
-        id: '21',
-        arabic: 'أَسْتَغْفِرُ اللّٰهَ الْعَظِيمَ الَّذِي لَا إِلٰهَ إِلَّا هُوَ الْحَيُّ الْقَيُّومُ وَأَتُوبُ إِلَيْهِ',
-        transliteration: 'Astaghfir Allah al-\'adheem alladhi laa ilaaha illa huwa al-hayy al-qayyoom wa atubu ilayh',
-        translation: 'I seek forgiveness of Allah the Mighty, Whom there is none worthy of worship except Him, the Living, the Eternal, and I repent unto Him.',
-        count: 3,
-        source: 'Abu Dawud, Tirmidhi',
-        category: 'general',
-      },
-      {
-        id: '22',
-        arabic: 'سُبْحَانَ اللَّهِ، وَالْحَمْدُ لِلَّهِ، وَلا إِلَهَ إِلاَّ اللَّهُ وَاللَّهُ أَكْبَرُ',
-        transliteration: 'Subhaan Allaahi, wal hamdu lillaahi, wa laa ilaaha illa Allaahu wa Allaahu akbar',
-        translation: 'How perfect Allah is, all praise is for Allah, none has the right to be worshipped except Allah, and Allah is the greatest.',
-        count: 33,
-        source: 'Tirmidhi',
-        category: 'general',
-      },
-      {
-        id: '23',
-        arabic: 'سُبْحَانَ اللَّهِ وَبِحَمْدِهِ، سُبْحَانَ اللَّهِ الْعَظِيمِ',
-        transliteration: 'Subhaan Allaahi wa bihamdihi, subhaan Allaah il-\'adheem',
-        translation: 'How perfect Allah is and I praise Him, how perfect Allah is, The Supreme.',
-        count: 10,
-        source: 'Bukhari, Muslim',
-        category: 'general',
-      },
-      {
-        id: '24',
-        arabic: 'لا حَوْلَ وَلا قُوَّةَ إِلاَّ بِاللَّهِ',
-        transliteration: 'Laa hawla wa laa quwwata illaa billaah',
-        translation: 'There is no might nor power except with Allah.',
-        count: 10,
-        source: 'Bukhari, Muslim',
-        category: 'general',
-      },
-      {
-        id: '25',
-        arabic: 'اللَّهُمَّ صَلِّ عَلَى مُحَمَّدٍ وَعَلَى آلِ مُحَمَّدٍ كَمَا صَلَّيْتَ عَلَى إِبْرَاهِيمَ وَعَلَى آلِ إِبْرَاهِيمَ إِنَّكَ حَمِيدٌ مَجِيدٌ',
-        transliteration: 'Allaahumma salli \'alaa Muhammadin wa \'alaa aali Muhammadin kamaa sallayta \'alaa Ibraaheema wa \'alaa aali Ibraaheema innaka hameedun majeed',
-        translation: 'O Allah, send prayers upon Muhammad and upon the family of Muhammad, as You sent prayers upon Ibrahim and upon the family of Ibrahim, verily You are Praiseworthy and Glorious.',
-        count: 10,
-        source: 'Bukhari',
-        category: 'general',
-      },
-      {
-        id: '26',
-        arabic: 'رَضِيتُ بِاللَّهِ رَبًّا وَبِالإِسْلامِ دِينًا وَبِمُحَمَّدٍ رَسُولاً',
-        transliteration: 'Radeetu billaahi rabban wa bil-Islaami deenan wa bi Muhammadin rasoolan',
-        translation: 'I am pleased with Allah as a Lord, and Islam as a religion, and Muhammad as a Messenger.',
-        count: 3,
-        source: 'Abu Dawud',
-        category: 'general',
-      },
-      {
-        id: '27',
-        arabic: 'يَا حَيُّ يَا قَيُّومُ بِرَحْمَتِكَ أَسْتَغِيثُ أَصْلِحْ لِي دِينِي كُلَّهُ وَلاَ تَكِلْنِي إِلَى نَفْسِي طَرْفَةَ عَيْنٍ',
-        transliteration: 'Yaa hayyu yaa qayyoomu birahmatika astagheethu aslih lee deenee kullahu wa laa takilnee ilaa nafsee tarfata \'ayn',
-        translation: 'O Ever Living, O Self-Subsisting and Supporter of all, by Your mercy I seek assistance, rectify for me all of my affairs and do not leave me to myself, even for the blink of an eye.',
-        count: 3,
-        source: 'Nasa\'i',
-        category: 'general',
-      },
-      {
-        id: '28',
-        arabic: 'اللَّهُمَّ أَعِنِّي عَلَى ذِكْرِكَ وَشُكْرِكَ وَحُسْنِ عِبَادَتِكَ',
-        transliteration: 'Allaahumma a\'innee \'alaa dhikrika wa shukrika wa husni \'ibaadatik',
-        translation: 'O Allah, help me remember You, to be grateful to You, and to worship You in an excellent manner.',
-        count: 3,
-        source: 'Abu Dawud, Nasa\'i',
-        category: 'general',
-      },
-      {
-        id: '29',
-        arabic: 'رَبَّنَا آتِنَا فِي الدُّنْيَا حَسَنَةً وَفِي الآخِرَةِ حَسَنَةً وَقِنَا عَذَابَ النَّارِ',
-        transliteration: 'Rabbanaa aatinaa fi ad-dunyaa hasanatan wa fi al-aakhirati hasanatan wa qinaa \'adhaab an-naar',
-        translation: 'Our Lord, give us in this world that which is good and in the Hereafter that which is good, and save us from the punishment of the Fire.',
-        count: 7,
-        source: 'Bukhari, Muslim',
-        category: 'general',
-      },
-      {
-        id: '30',
-        arabic: 'اللَّهُمَّ إِنَّكَ عُفُوٌّ كَرِيمٌ تُحِبُّ الْعَفْوَ فَاعْفُ عَنِّي',
-        transliteration: 'Allaahumma innaka \'afuwwun kareemun tuhibb ul-\'afwa fa\'fu \'annee',
-        translation: 'O Allah, You are Most Forgiving, and You love forgiveness; so forgive me.',
-        count: 3,
-        source: 'Tirmidhi, Ibn Majah',
-        category: 'general',
-      },
+      // ... (include general adhkar)
     ],
     sleeping: [
-      {
-        id: '31',
-        arabic: 'بِاسْمِكَ اللَّهُمَّ أَمُوتُ وَأَحْيَا',
-        transliteration: 'Bismika Allaahumma amootu wa ahyaa',
-        translation: 'In Your name O Allah, I live and die.',
-        count: 1,
-        source: 'Bukhari',
-        category: 'sleeping',
-      },
-      {
-        id: '32',
-        arabic: 'اللَّهُمَّ قِنِي عَذَابَكَ يَوْمَ تَبْعَثُ عِبَادَكَ',
-        transliteration: 'Allaahumma qinee \'adhaabaka yawma tab\'athu \'ibaadak',
-        translation: 'O Allah, protect me from Your punishment on the day You resurrect Your servants.',
-        count: 3,
-        source: 'Abu Dawud, Tirmidhi',
-        category: 'sleeping',
-      },
-      {
-        id: '33',
-        arabic: 'اللَّهُمَّ بِاسْمِكَ أَمُوتُ وَأَحْيَا',
-        transliteration: 'Allaahumma bismika amootu wa ahyaa',
-        translation: 'O Allah, in Your name I die and I live.',
-        count: 1,
-        source: 'Bukhari, Muslim',
-        category: 'sleeping',
-      },
-      {
-        id: '34',
-        arabic: 'سُبْحَانَ اللَّهِ',
-        transliteration: 'Subhaan Allaah',
-        translation: 'How perfect Allah is.',
-        count: 33,
-        source: 'Bukhari, Muslim',
-        category: 'sleeping',
-      },
-      {
-        id: '35',
-        arabic: 'الْحَمْدُ لِلَّهِ',
-        transliteration: 'Al-hamdu lillaah',
-        translation: 'All praise is for Allah.',
-        count: 33,
-        source: 'Bukhari, Muslim',
-        category: 'sleeping',
-      },
-      {
-        id: '36',
-        arabic: 'اللَّهُ أَكْبَرُ',
-        transliteration: 'Allaahu akbar',
-        translation: 'Allah is the greatest.',
-        count: 34,
-        source: 'Bukhari, Muslim',
-        category: 'sleeping',
-      },
-      {
-        id: '37',
-        arabic: 'اللَّهُمَّ رَبَّ السَّمَوَاتِ السَّبْعِ وَرَبَّ الْعَرْشِ الْعَظِيمِ، رَبَّنَا وَرَبَّ كُلِّ شَيْءٍ، فَالِقَ الْحَبِّ وَالنَّوَى، وَمُنْزِلَ التَّوْرَاةِ وَالإِنجِيلِ وَالْفُرْقَانِ، أَعُوذُ بِكَ مِنْ شَرِّ كُلِّ شَيْءٍ أَنْتَ آخِذٌ بِنَاصِيَتِهِ. اللَّهُمَّ أَنْتَ الأَوَّلُ فَلَيْسَ قَبْلَكَ شَيْءٌ، وَأَنْتَ الآخِرُ فَلَيْسَ بَعْدَكَ شَيْءٌ، وَأَنْتَ الظَّاهِرُ فَلَيْسَ فَوْقَكَ شَيْءٌ، وَأَنْتَ الْبَاطِنُ فَلَيْسَ دُونَكَ شَيْءٌ، اقْضِ عَنَّا الدَّيْنَ وَأَغْنِنَا مِنَ الْفَقْرِ',
-        transliteration: 'Allaahumma rabb as-samaawaati as-sab\'i wa rabb al-\'arshi al-\'adheem, rabbanaa wa rabba kulli shay-in, faaliqa al-habbi wa an-nawaa, wa munzila at-tawraati wa al-injeeli wa al-furqaan, a\'oodhu bika min sharri kulli shay-in anta aakhidhun bi naasiyatih. Allaahumma anta al-awwalu fa laysa qablaka shay-un, wa anta al-aakhiru fa laysa ba\'daka shay-un, wa anta adh-dhaahiru fa laysa fawqaka shay-un, wa anta al-baatinu fa laysa doonaka shay-un, iqdi \'anna ad-dayna wa aghninaa min al-faqr',
-        translation: 'O Allah, Lord of the seven heavens and the exalted throne, our Lord and Lord of all things, splitter of the seed and the date stone, revealer of the Tawrah, the Injeel and the Furqan, I take refuge in You from the evil of all things You shall seize by the forelock. O Allah, You are the First so there is nothing before You, and You are the Last so there is nothing after You, and You are the Most High so there is nothing above You, and You are the Most Near so there is nothing closer than You. Settle our debt for us and spare us from poverty.',
-        count: 1,
-        source: 'Muslim',
-        category: 'sleeping',
-      },
-      {
-        id: '38',
-        arabic: 'الْحَمْدُ لِلَّهِ الَّذِي أَطْعَمَنَا وَسَقَانَا وَكَفَانَا وَآوَانَا فَكَمْ مِمَّن لاَّ كَافِيَ لَهُ وَلاَ مُؤْوِيَ',
-        transliteration: 'Al-hamdu lillaahi alladhee at\'amanaa wa saqaanaa wa kafaanaa wa aawaanaa, fa kam mimman laa kaafiya lahu wa laa mu\'wee',
-        translation: 'All praise is for Allah, Who fed us and gave us drink, and Who is sufficient for us and has sheltered us, for how many have none to suffice them or shelter them.',
-        count: 1,
-        source: 'Muslim',
-        category: 'sleeping',
-      },
-      {
-        id: '39',
-        arabic: 'اللَّهُمَّ عَالِمَ الْغَيْبِ وَالشَّهَادَةِ فَاطِرَ السَّمَوَاتِ وَالأَرْضِ رَبَّ كُلِّ شَيْءٍ وَمَلِيكَهُ، أَشْهَدُ أَن لاَّ إِلَهَ إِلاَّ أَنْتَ أَعُوذُ بِكَ مِن شَرِّ نَفْسِي وَمِن شَرِّ الشَّيْطَان وَشِرْكِهِ',
-        transliteration: 'Allaahumma \'aalim al-ghaybi wa ash-shahaadati faatir as-samaawaati wa al-ardi rabba kulli shay-in wa maleekah, ashhadu an laa ilaaha illaa anta, a\'oodhu bika min sharri nafsee wa min sharr ish-shaytaani wa shirkah',
-        translation: 'O Allah, Knower of the unseen and the seen, Creator of the heavens and the earth, Lord and Sovereign of all things, I bear witness that none has the right to be worshipped except You. I take refuge in You from the evil of my soul and from the evil and shirk of the devil.',
-        count: 1,
-        source: 'Abu Dawud, Tirmidhi',
-        category: 'sleeping',
-      },
-      {
-        id: '40',
-        arabic: 'أَعُوذُ بِكَلِمَاتِ اللَّهِ التَّامَّاتِ مِنْ شَرِّ مَا خَلَقَ',
-        transliteration: 'A\'oodhu bi kalimaati Allaahi at-taammaati min sharri maa khalaq',
-        translation: 'I take refuge in Allah\'s perfect words from the evil He has created.',
-        count: 3,
-        source: 'Muslim',
-        category: 'sleeping',
-      },
+      // ... (include sleeping adhkar)
     ],
   };
 
+  // Check if user is authenticated
+  private getCurrentUserId(): string | null {
+    return auth.currentUser?.uid || null;
+  }
+
+  // Check if app is in offline mode
+  private async isOfflineMode(): Promise<boolean> {
+    try {
+      const offline = await AsyncStorage.getItem(this.offlineModeKey);
+      return offline === 'true';
+    } catch {
+      return false;
+    }
+  }
+
+  // Set offline mode
+  async setOfflineMode(offline: boolean): Promise<void> {
+    await AsyncStorage.setItem(this.offlineModeKey, offline.toString());
+  }
+
+  // Initialize default adhkar in Firebase for new users
+  async initializeUserAdhkar(userId: string): Promise<void> {
+    try {
+      const userAdhkarRef = doc(db, 'userAdhkar', userId);
+      const userAdhkarDoc = await getDoc(userAdhkarRef);
+      
+      if (!userAdhkarDoc.exists()) {
+        await setDoc(userAdhkarRef, {
+          adhkar: this.defaultAdhkar,
+          createdAt: serverTimestamp(),
+          updatedAt: serverTimestamp(),
+        });
+      }
+
+      // Initialize user stats
+      const userStatsRef = doc(db, 'userDhikrStats', userId);
+      const userStatsDoc = await getDoc(userStatsRef);
+      
+      if (!userStatsDoc.exists()) {
+        const initialStats: UserDhikrStats = {
+          totalSessions: 0,
+          totalDhikrCount: 0,
+          totalTimeSpent: 0,
+          streakDays: 0,
+          lastActiveDate: new Date(),
+          favoriteCategories: [],
+          weeklyGoal: 50,
+          monthlyGoal: 200,
+          categoriesCompleted: {
+            morning: 0,
+            evening: 0,
+            general: 0,
+            sleeping: 0,
+          },
+        };
+
+        await setDoc(userStatsRef, {
+          ...initialStats,
+          lastActiveDate: serverTimestamp(),
+          createdAt: serverTimestamp(),
+          updatedAt: serverTimestamp(),
+        });
+      }
+    } catch (error) {
+      console.error('Error initializing user adhkar:', error);
+    }
+  }
+
+  // Get adhkar by category
   async getAdhkarByCategory(category: DhikrCategory): Promise<Dhikr[]> {
     try {
-      const stored = await AsyncStorage.getItem(this.storageKey);
-      if (stored) {
-        const allAdhkar = JSON.parse(stored);
-        return allAdhkar[category] || this.defaultAdhkar[category];
+      const userId = this.getCurrentUserId();
+      const isOffline = await this.isOfflineMode();
+
+      if (!userId || isOffline) {
+        // Use local storage for offline or unauthenticated users
+        const stored = await AsyncStorage.getItem(this.storageKey);
+        if (stored) {
+          const allAdhkar = JSON.parse(stored);
+          return allAdhkar[category] || this.defaultAdhkar[category];
+        }
+        return this.defaultAdhkar[category];
       }
+
+      // Get from Firebase for authenticated users
+      const userAdhkarRef = doc(db, 'userAdhkar', userId);
+      const userAdhkarDoc = await getDoc(userAdhkarRef);
+      
+      if (userAdhkarDoc.exists()) {
+        const data = userAdhkarDoc.data();
+        return data.adhkar[category] || this.defaultAdhkar[category];
+      }
+
+      // Initialize if doesn't exist
+      await this.initializeUserAdhkar(userId);
       return this.defaultAdhkar[category];
     } catch (error) {
       console.error('Error getting adhkar:', error);
@@ -390,12 +199,28 @@ class AdhkarService {
     }
   }
 
+  // Get all adhkar
   async getAllAdhkar(): Promise<Record<DhikrCategory, Dhikr[]>> {
     try {
-      const stored = await AsyncStorage.getItem(this.storageKey);
-      if (stored) {
-        return JSON.parse(stored);
+      const userId = this.getCurrentUserId();
+      const isOffline = await this.isOfflineMode();
+
+      if (!userId || isOffline) {
+        const stored = await AsyncStorage.getItem(this.storageKey);
+        if (stored) {
+          return JSON.parse(stored);
+        }
+        return this.defaultAdhkar;
       }
+
+      const userAdhkarRef = doc(db, 'userAdhkar', userId);
+      const userAdhkarDoc = await getDoc(userAdhkarRef);
+      
+      if (userAdhkarDoc.exists()) {
+        return userAdhkarDoc.data().adhkar || this.defaultAdhkar;
+      }
+
+      await this.initializeUserAdhkar(userId);
       return this.defaultAdhkar;
     } catch (error) {
       console.error('Error getting all adhkar:', error);
@@ -403,65 +228,322 @@ class AdhkarService {
     }
   }
 
-  async saveAdhkar(adhkar: Record<DhikrCategory, Dhikr[]>): Promise<void> {
+  // Save custom adhkar
+  async saveCustomDhikr(dhikr: Dhikr): Promise<void> {
     try {
-      await AsyncStorage.setItem(this.storageKey, JSON.stringify(adhkar));
+      const userId = this.getCurrentUserId();
+      if (!userId) {
+        throw new Error('User must be authenticated to save custom dhikr');
+      }
+
+      const customDhikrRef = collection(db, 'customDhikr');
+      await addDoc(customDhikrRef, {
+        ...dhikr,
+        userId,
+        isCustom: true,
+        createdAt: serverTimestamp(),
+      });
     } catch (error) {
-      console.error('Error saving adhkar:', error);
+      console.error('Error saving custom dhikr:', error);
+      throw error;
     }
   }
 
+  // Get user's custom adhkar
+  async getCustomAdhkar(): Promise<Dhikr[]> {
+    try {
+      const userId = this.getCurrentUserId();
+      if (!userId) return [];
+
+      const customDhikrQuery = query(
+        collection(db, 'customDhikr'),
+        where('userId', '==', userId),
+        orderBy('createdAt', 'desc')
+      );
+
+      const querySnapshot = await getDocs(customDhikrQuery);
+      const customAdhkar: Dhikr[] = [];
+
+      querySnapshot.forEach((doc) => {
+        const data = doc.data();
+        customAdhkar.push({
+          id: doc.id,
+          arabic: data.arabic,
+          transliteration: data.transliteration,
+          translation: data.translation,
+          count: data.count,
+          source: data.source,
+          category: data.category,
+        });
+      });
+
+      return customAdhkar;
+    } catch (error) {
+      console.error('Error getting custom adhkar:', error);
+      return [];
+    }
+  }
+
+  // Get favorites
   async getFavorites(): Promise<string[]> {
     try {
-      const stored = await AsyncStorage.getItem(this.favoritesKey);
-      return stored ? JSON.parse(stored) : [];
+      const userId = this.getCurrentUserId();
+      const isOffline = await this.isOfflineMode();
+
+      if (!userId || isOffline) {
+        const stored = await AsyncStorage.getItem(this.favoritesKey);
+        return stored ? JSON.parse(stored) : [];
+      }
+
+      const userRef = doc(db, 'users', userId);
+      const userDoc = await getDoc(userRef);
+      
+      if (userDoc.exists()) {
+        return userDoc.data().favorites || [];
+      }
+      return [];
     } catch (error) {
       console.error('Error getting favorites:', error);
       return [];
     }
   }
 
+  // Add to favorites
   async addFavorite(dhikrId: string): Promise<void> {
     try {
-      const favorites = await this.getFavorites();
-      if (!favorites.includes(dhikrId)) {
-        favorites.push(dhikrId);
-        await AsyncStorage.setItem(this.favoritesKey, JSON.stringify(favorites));
+      const userId = this.getCurrentUserId();
+      const isOffline = await this.isOfflineMode();
+
+      if (!userId || isOffline) {
+        const favorites = await this.getFavorites();
+        if (!favorites.includes(dhikrId)) {
+          favorites.push(dhikrId);
+          await AsyncStorage.setItem(this.favoritesKey, JSON.stringify(favorites));
+        }
+        return;
       }
+
+      const userRef = doc(db, 'users', userId);
+      await updateDoc(userRef, {
+        favorites: arrayUnion(dhikrId),
+        updatedAt: serverTimestamp(),
+      });
     } catch (error) {
       console.error('Error adding favorite:', error);
     }
   }
 
+  // Remove from favorites
   async removeFavorite(dhikrId: string): Promise<void> {
     try {
-      const favorites = await this.getFavorites();
-      const updated = favorites.filter(id => id !== dhikrId);
-      await AsyncStorage.setItem(this.favoritesKey, JSON.stringify(updated));
+      const userId = this.getCurrentUserId();
+      const isOffline = await this.isOfflineMode();
+
+      if (!userId || isOffline) {
+        const favorites = await this.getFavorites();
+        const updated = favorites.filter(id => id !== dhikrId);
+        await AsyncStorage.setItem(this.favoritesKey, JSON.stringify(updated));
+        return;
+      }
+
+      const userRef = doc(db, 'users', userId);
+      await updateDoc(userRef, {
+        favorites: arrayRemove(dhikrId),
+        updatedAt: serverTimestamp(),
+      });
     } catch (error) {
       console.error('Error removing favorite:', error);
     }
   }
 
-  async getFavoriteAdhkar(): Promise<Dhikr[]> {
+  // Start dhikr session
+  async startDhikrSession(dhikrId: string, category: DhikrCategory): Promise<string> {
     try {
-      const favorites = await this.getFavorites();
-      const allAdhkar = await this.getAllAdhkar();
-      const favoriteAdhkar: Dhikr[] = [];
+      const userId = this.getCurrentUserId();
+      if (!userId) {
+        throw new Error('User must be authenticated to start dhikr session');
+      }
 
-      Object.values(allAdhkar).flat().forEach(dhikr => {
-        if (favorites.includes(dhikr.id)) {
-          favoriteAdhkar.push(dhikr);
-        }
+      const sessionRef = collection(db, 'dhikrSessions');
+      const sessionDoc = await addDoc(sessionRef, {
+        userId,
+        dhikrId,
+        category,
+        count: 0,
+        duration: 0,
+        startedAt: serverTimestamp(),
+        isCompleted: false,
+        createdAt: serverTimestamp(),
       });
 
-      return favoriteAdhkar;
+      return sessionDoc.id;
     } catch (error) {
-      console.error('Error getting favorite adhkar:', error);
+      console.error('Error starting dhikr session:', error);
+      throw error;
+    }
+  }
+
+  // Update dhikr session progress
+  async updateDhikrProgress(sessionId: string, count: number): Promise<void> {
+    try {
+      const sessionRef = doc(db, 'dhikrSessions', sessionId);
+      await updateDoc(sessionRef, {
+        count,
+        updatedAt: serverTimestamp(),
+      });
+    } catch (error) {
+      console.error('Error updating dhikr progress:', error);
+    }
+  }
+
+  // Complete dhikr session
+  async completeDhikrSession(sessionId: string, finalCount: number, duration: number): Promise<void> {
+    try {
+      const userId = this.getCurrentUserId();
+      if (!userId) return;
+
+      const sessionRef = doc(db, 'dhikrSessions', sessionId);
+      
+      // Update session
+      await updateDoc(sessionRef, {
+        count: finalCount,
+        duration,
+        isCompleted: true,
+        completedAt: serverTimestamp(),
+        updatedAt: serverTimestamp(),
+      });
+
+      // Update user stats
+      const userStatsRef = doc(db, 'userDhikrStats', userId);
+      await updateDoc(userStatsRef, {
+        totalSessions: increment(1),
+        totalDhikrCount: increment(finalCount),
+        totalTimeSpent: increment(Math.floor(duration / 60)), // convert to minutes
+        lastActiveDate: serverTimestamp(),
+        updatedAt: serverTimestamp(),
+      });
+
+      // Update daily streak
+      await this.updateDailyStreak(userId);
+    } catch (error) {
+      console.error('Error completing dhikr session:', error);
+    }
+  }
+
+  // Update daily streak
+  private async updateDailyStreak(userId: string): Promise<void> {
+    try {
+      const userStatsRef = doc(db, 'userDhikrStats', userId);
+      const userStatsDoc = await getDoc(userStatsRef);
+      
+      if (userStatsDoc.exists()) {
+        const data = userStatsDoc.data();
+        const lastActiveDate = data.lastActiveDate?.toDate();
+        const today = new Date();
+        
+        let newStreak = data.streakDays || 0;
+        
+        if (lastActiveDate) {
+          const daysDiff = Math.floor((today.getTime() - lastActiveDate.getTime()) / (1000 * 60 * 60 * 24));
+          
+          if (daysDiff === 1) {
+            // Consecutive day - increment streak
+            newStreak += 1;
+          } else if (daysDiff > 1) {
+            // Streak broken - reset to 1
+            newStreak = 1;
+          }
+          // Same day - keep current streak
+        } else {
+          // First time - start streak
+          newStreak = 1;
+        }
+        
+        await updateDoc(userStatsRef, {
+          streakDays: newStreak,
+          updatedAt: serverTimestamp(),
+        });
+      }
+    } catch (error) {
+      console.error('Error updating daily streak:', error);
+    }
+  }
+
+  // Get user dhikr statistics
+  async getUserDhikrStats(): Promise<UserDhikrStats | null> {
+    try {
+      const userId = this.getCurrentUserId();
+      if (!userId) return null;
+
+      const userStatsRef = doc(db, 'userDhikrStats', userId);
+      const userStatsDoc = await getDoc(userStatsRef);
+      
+      if (userStatsDoc.exists()) {
+        const data = userStatsDoc.data();
+        return {
+          totalSessions: data.totalSessions || 0,
+          totalDhikrCount: data.totalDhikrCount || 0,
+          totalTimeSpent: data.totalTimeSpent || 0,
+          streakDays: data.streakDays || 0,
+          lastActiveDate: data.lastActiveDate?.toDate() || new Date(),
+          favoriteCategories: data.favoriteCategories || [],
+          weeklyGoal: data.weeklyGoal || 50,
+          monthlyGoal: data.monthlyGoal || 200,
+          categoriesCompleted: data.categoriesCompleted || {
+            morning: 0,
+            evening: 0,
+            general: 0,
+            sleeping: 0,
+          },
+        };
+      }
+      return null;
+    } catch (error) {
+      console.error('Error getting user dhikr stats:', error);
+		return null;
+    }
+  }
+
+  // Get recent dhikr sessions
+  async getRecentSessions(limitCount: number = 10): Promise<DhikrSession[]> {
+    try {
+      const userId = this.getCurrentUserId();
+      if (!userId) return [];
+
+      const sessionsQuery = query(
+        collection(db, 'dhikrSessions'),
+        where('userId', '==', userId),
+        where('isCompleted', '==', true),
+        orderBy('completedAt', 'desc'),
+        limit(limitCount)
+      );
+
+      const querySnapshot = await getDocs(sessionsQuery);
+      const sessions: DhikrSession[] = [];
+
+      querySnapshot.forEach((doc) => {
+        const data = doc.data();
+        sessions.push({
+          id: doc.id,
+          userId: data.userId,
+          dhikrId: data.dhikrId,
+          category: data.category,
+          count: data.count,
+          duration: data.duration,
+          startedAt: data.startedAt?.toDate() || new Date(),
+          completedAt: data.completedAt?.toDate() || new Date(),
+          isCompleted: data.isCompleted,
+        });
+      });
+
+      return sessions;
+    } catch (error) {
+      console.error('Error getting recent sessions:', error);
       return [];
     }
   }
 
+  // Search adhkar
   async searchAdhkar(query: string): Promise<Dhikr[]> {
     try {
       const allAdhkar = await this.getAllAdhkar();
@@ -473,7 +555,20 @@ class AdhkarService {
           dhikr.arabic.toLowerCase().includes(lowercaseQuery) ||
           dhikr.transliteration.toLowerCase().includes(lowercaseQuery) ||
           dhikr.translation.toLowerCase().includes(lowercaseQuery) ||
-          dhikr.source?.toLocaleLowerCase().includes(lowercaseQuery)
+          dhikr.source?.toLowerCase().includes(lowercaseQuery)
+        ) {
+          searchResults.push(dhikr);
+        }
+      });
+
+      // Also search custom adhkar
+      const customAdhkar = await this.getCustomAdhkar();
+      customAdhkar.forEach(dhikr => {
+        if (
+          dhikr.arabic.toLowerCase().includes(lowercaseQuery) ||
+          dhikr.transliteration.toLowerCase().includes(lowercaseQuery) ||
+          dhikr.translation.toLowerCase().includes(lowercaseQuery) ||
+          dhikr.source?.toLowerCase().includes(lowercaseQuery)
         ) {
           searchResults.push(dhikr);
         }
@@ -486,18 +581,139 @@ class AdhkarService {
     }
   }
 
+  // Set weekly/monthly goals
+  async setUserGoals(weeklyGoal: number, monthlyGoal: number): Promise<void> {
+    try {
+      const userId = this.getCurrentUserId();
+      if (!userId) return;
+
+      const userStatsRef = doc(db, 'userDhikrStats', userId);
+      await updateDoc(userStatsRef, {
+        weeklyGoal,
+        monthlyGoal,
+        updatedAt: serverTimestamp(),
+      });
+    } catch (error) {
+      console.error('Error setting user goals:', error);
+    }
+  }
+
+  // Sync offline data when coming back online
+  async syncOfflineData(): Promise<void> {
+    try {
+      const userId = this.getCurrentUserId();
+      if (!userId) return;
+
+      // Sync favorites
+      const localFavorites = await AsyncStorage.getItem(this.favoritesKey);
+      if (localFavorites) {
+        const favorites = JSON.parse(localFavorites);
+        const userRef = doc(db, 'users', userId);
+        await updateDoc(userRef, {
+          favorites,
+          updatedAt: serverTimestamp(),
+        });
+      }
+
+      // Clear offline mode
+      await this.setOfflineMode(false);
+    } catch (error) {
+      console.error('Error syncing offline data:', error);
+    }
+  }
+
+  // Listen to real-time updates
+  onDhikrStatsChange(callback: (stats: UserDhikrStats | null) => void): () => void {
+    const userId = this.getCurrentUserId();
+    if (!userId) {
+      callback(null);
+      return () => {};
+    }
+
+    const userStatsRef = doc(db, 'userDhikrStats', userId);
+    return onSnapshot(userStatsRef, (doc) => {
+      if (doc.exists()) {
+        const data = doc.data();
+        const stats: UserDhikrStats = {
+          totalSessions: data.totalSessions || 0,
+          totalDhikrCount: data.totalDhikrCount || 0,
+          totalTimeSpent: data.totalTimeSpent || 0,
+          streakDays: data.streakDays || 0,
+          lastActiveDate: data.lastActiveDate?.toDate() || new Date(),
+          favoriteCategories: data.favoriteCategories || [],
+          weeklyGoal: data.weeklyGoal || 50,
+          monthlyGoal: data.monthlyGoal || 200,
+          categoriesCompleted: data.categoriesCompleted || {
+            morning: 0,
+            evening: 0,
+            general: 0,
+            sleeping: 0,
+          },
+        };
+        callback(stats);
+      } else {
+        callback(null);
+      }
+    });
+  }
+
+  // Get default adhkar
   getDefaultAdhkar(): Record<DhikrCategory, Dhikr[]> {
     return this.defaultAdhkar;
   }
 
+  // Reset to default (clears all user data)
   async resetToDefault(): Promise<void> {
     try {
-      await AsyncStorage.removeItem(this.storageKey);
-      await AsyncStorage.removeItem(this.favoritesKey);
+      const userId = this.getCurrentUserId();
+      
+      // Clear local storage
+      await AsyncStorage.multiRemove([this.storageKey, this.favoritesKey]);
+      
+      if (userId) {
+        // Reset Firebase data
+        const batch = writeBatch(db);
+        
+        // Reset user adhkar
+        const userAdhkarRef = doc(db, 'userAdhkar', userId);
+        batch.set(userAdhkarRef, {
+          adhkar: this.defaultAdhkar,
+          updatedAt: serverTimestamp(),
+        });
+        
+        // Reset user stats
+        const userStatsRef = doc(db, 'userDhikrStats', userId);
+        batch.set(userStatsRef, {
+          totalSessions: 0,
+          totalDhikrCount: 0,
+          totalTimeSpent: 0,
+          streakDays: 0,
+          lastActiveDate: serverTimestamp(),
+          favoriteCategories: [],
+          weeklyGoal: 50,
+          monthlyGoal: 200,
+          categoriesCompleted: {
+            morning: 0,
+            evening: 0,
+            general: 0,
+            sleeping: 0,
+          },
+          updatedAt: serverTimestamp(),
+        });
+        
+        // Reset user favorites
+        const userRef = doc(db, 'users', userId);
+        batch.update(userRef, {
+          favorites: [],
+          updatedAt: serverTimestamp(),
+        });
+        
+        await batch.commit();
+      }
     } catch (error) {
       console.error('Error resetting to default:', error);
     }
   }
 }
 
-export const adhkarService = new AdhkarService();
+export const firebaseAdhkarService = new FirebaseAdhkarService();

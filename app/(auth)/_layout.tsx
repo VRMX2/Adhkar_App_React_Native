@@ -1,3 +1,4 @@
+// app/(auth)/_layout.tsx
 import { Stack } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { useColorScheme } from 'react-native';
@@ -40,5 +41,5 @@ export default function AuthLayout() {
       </Stack>
       <StatusBar style={isDark ? 'light' : 'dark'} />
     </>
-  );
+	);
 }
